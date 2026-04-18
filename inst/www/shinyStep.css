@@ -1,0 +1,146 @@
+/* ── shinyStep package styles ─────────────────────────────────────────── */
+
+/* Status badge */
+.sStep-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  vertical-align: middle;
+}
+.sStep-ready   { background: #e3f2fd; color: #1565c0; }
+.sStep-running { background: #fff3e0; color: #e65100; }
+.sStep-paused  { background: #fff8e1; color: #c17900; border: 1px solid #ffe082; }
+.sStep-modified{ background: #fce4ec; color: #880e4f; border: 1px solid #f48fb1; }
+.sStep-done    { background: #e8f5e9; color: #2e7d32; }
+.sStep-error   { background: #ffebee; color: #c62828; }
+
+/* Toolbar */
+.sStep-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 6px 0;
+  flex-wrap: nowrap;
+}
+.sStep-title {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+}
+.sStep-toolbar-right {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.sStep-toolbar-right .checkbox {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* Right debug pane */
+.sStep-right-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  overflow: hidden;
+}
+
+/* Step control buttons */
+.sStep-controls {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.sStep-controls .btn {
+  font-size: 12px;
+  padding: 3px 10px;
+}
+
+/* Single unified terminal (output + prompt in one scrollable box) */
+.sStep-terminal {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+  font-size: 12px;
+  border-radius: 4px;
+  padding: 8px 10px 6px 10px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 80px;
+  display: flex;
+  flex-direction: column;
+  cursor: text;
+}
+
+/* Prompt + input row — sits right after the last output line */
+.sStep-input-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.sStep-prompt {
+  color: #4ec9b0;
+  font-size: 12px;
+  line-height: 1.5;
+  user-select: none;
+  flex-shrink: 0;
+  padding-top: 3px;
+}
+.sStep-input-line .form-group { margin: 0; flex: 1; }
+.sStep-input-line textarea {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+  color: #d4d4d4;
+  font-family: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: none;
+  padding: 2px 0;
+  width: 100%;
+}
+.sStep-input-line textarea:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+.sStep-log-line {
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.sStep-log-error  { color: #f48771; }
+.sStep-log-pause  { color: #dcdcaa; }
+.sStep-log-resume { color: #4ec9b0; }
+.sStep-log-done   { color: #4ec9b0; font-weight: bold; }
+.sStep-log-info   { color: #9cdcfe; }
+.sStep-log-out    { color: #d4d4d4; }
+
+/* Divider */
+.sStep-hr {
+  border: none;
+  border-top: 1px solid #e8e8e8;
+  margin: 2px 0;
+}
+
+/* RStudio-style current-line highlight in Ace editor */
+.sStep-current-line {
+  background: rgba(46, 204, 113, 0.18);
+  position: absolute;
+}
+.ace_gutter-cell.sStep-gutter-arrow {
+  background-color: rgba(46, 204, 113, 0.25) !important;
+  color: #1a7a3a !important;
+  font-weight: bold;
+}
+
+/* Console input echo in output log */
+.sStep-log-console { color: #ce9178; font-style: italic; }

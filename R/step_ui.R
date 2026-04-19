@@ -38,6 +38,17 @@
     "    if(s&&s.toString().length>0) document.execCommand('copy');",
     "  });",
     "})();",
+    # Enable/disable step-control buttons
+    "Shiny.addCustomMessageHandler('", ns("toggle_controls"), "',function(msg){",
+    "  ['", ns("btn_next"), "','", ns("btn_step_out"), "','",
+         ns("btn_continue"), "','", ns("btn_stop"), "'].forEach(function(id){",
+    "    var el=document.getElementById(id);",
+    "    if(el){ el.disabled=msg.disabled;",
+    "      el.style.opacity=msg.disabled?'0.45':'';",
+    "      el.style.cursor=msg.disabled?'not-allowed':'';",
+    "    }",
+    "  });",
+    "});",
     # Green-arrow line highlight (RStudio-style)
     "var _hl={marker:null,gutter:null};",
     "function _sStepEd(id){",
@@ -101,7 +112,7 @@
 #' @param height Ace editor height as a CSS string. Default \code{"500px"}.
 #' @param theme Ace editor theme. Default \code{"textmate"}.
 #' @param default_code Initial code placed in the editor when no
-#'   \code{initial_code} is supplied to \code{stepServer()}.
+#'   \code{initial_code} is supplied to \code{stepServer()}. Defaults to \code{""}.
 #'
 #' @return A \code{tagList} suitable for inclusion anywhere in a Shiny UI.
 #' @export
@@ -109,7 +120,7 @@ stepUI <- function(id,
                    label        = id,
                    height       = "500px",
                    theme        = "textmate",
-                   default_code = "function() {\n  \n}") {
+                   default_code = "") {
   ns <- shiny::NS(id)
 
   shiny::tagList(
@@ -125,7 +136,11 @@ stepUI <- function(id,
       shiny::actionButton(ns("back"), label = NULL,
                           icon = shiny::icon("arrow-left"),
                           class = "btn-sm btn-default",
-                          title = "Back"),
+                          title = "Cancel — discard changes"),
+      shiny::actionButton(ns("save"), "Save",
+                          icon  = shiny::icon("floppy-disk"),
+                          class = "btn-sm btn-success",
+                          title = "Save function"),
       shiny::span(class = "sStep-title", label),
       shiny::uiOutput(ns("status_badge"), inline = TRUE),
       shiny::div(class = "sStep-toolbar-right",

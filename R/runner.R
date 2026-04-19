@@ -47,6 +47,7 @@ make_runner <- function() {
 
       # ── Debug targets ────────────────────────────────────────────────────
       debug_targets = character(0),
+      debug_skip    = character(0),
 
       # ── Return-value fixup ───────────────────────────────────────────────
       # Main expression that triggered the current pause (e.g. x <- f(raw))

@@ -8,7 +8,8 @@ Step through R functions expression-by-expression inside a Shiny app — like RS
 - Handles `for`, `while`, `repeat`, `if` / `else if` / `else`, and early `return()`
 - In-frame console: evaluate any R expression in the paused function's local environment
 - Per-function **Debug** toggle — uncheck to run a function at full speed without stepping, even mid-run
-- Return values and default function parameters handled correctly
+- Works with functions called directly from main code **and** functions invoked inside synchronous wrappers (e.g. a simulation engine's `controller$run()`)
+- Multiple functions can be registered and debugged in sequence within a single run
 
 ## Installation
 
@@ -20,7 +21,7 @@ Requires `shiny >= 1.7.0` and `shinyAce >= 0.4.0`.
 
 ## Usage
 
-Define your function code as a string, place one `stepUI()` per function in the UI, and wire up `stepServer()` in the server. A single `run_program()` call executes the main script and pauses at registered functions.
+Place one `stepUI()` per function in the UI and wire up `stepServer()` in the server. A single `run_program()` call executes the main script and pauses at registered functions.
 
 ```r
 library(shiny)
@@ -64,6 +65,22 @@ shinyApp(ui, server)
 
 Click **Run**, then use **Next** to step through each expression. Type `total` in the console and press **Enter** to inspect the running sum.
 
+## fn_name and alias injection
+
+`fn_name` in `stepServer()` is the **internal proxy name** — the name under which shinyStep installs its intercepting closure in the execution environment. It does not have to match what the user types in the editor, but it must match `debug_targets` in `run_program()` and is what appears in the status badge.
+
+When the user's function has a different name in `main_code` (e.g. `action1` in a script but `fn_name = "action"` internally), inject an alias at the top of `main_code` before calling `run_program()`:
+
+```r
+main_code <- paste0("action1 <- action\n", main_code)
+```
+
+This causes `action1` in the script to resolve to the proxy named `"action"`, keeping everything in sync.
+
+## Nested calls
+
+shinyStep works even when the target function is called from inside a long-running synchronous wrapper (e.g. a simulation engine). When the proxy fires it throws a typed condition that unwinds the enclosing call, returning control to the Shiny event loop. On Continue, the wrapper is re-executed from the start with the just-debugged function in a skip list so it passes through silently — allowing the next registered function to pause normally.
+
 ## Console keyboard shortcuts
 
 | Key          | Action                  |
@@ -86,11 +103,12 @@ Place in the UI for each function to debug. The toolbar includes a **Debug** che
 
 ### `stepServer(id, fn_name, runner, run_log, initial_code)`
 
-Wire up in the server. `fn_name` must match the function name as it appears in the editor code.
+Wire up in the server. `fn_name` is the internal proxy name — it must match the corresponding entry in `debug_targets` passed to `run_program()`.
 
 Returns:
 
-- `back_clicked` — reactive, fires when the Back button is clicked
+- `save_clicked` — reactive, fires when Save is clicked (stays in editor)
+- `back_clicked` — reactive, fires when Back is clicked (discards unsaved changes)
 - `fn_name` — registered function name (character)
 - `get_code` — function, returns current editor text
 - `enabled` — reactive, `TRUE` when the Debug checkbox is ticked
@@ -110,9 +128,9 @@ These are called internally by `stepServer` but are exported for advanced use.
 | `continue_to_next_pause(runner, run_log)` | Run to the next pause   |
 | `stop_runner(runner, run_log)`            | Abort execution         |
 
-## Example
+## Test app
 
-A complete three-function pipeline (`normalize → classify → tally`) is in `test_app/`:
+A working example with two milestone action functions and one standalone function is in `test_app/`:
 
 ```r
 shiny::runApp("test_app")

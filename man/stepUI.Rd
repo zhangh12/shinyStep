@@ -4,13 +4,7 @@
 \alias{stepUI}
 \title{UI for a shinyStep debugger module}
 \usage{
-stepUI(
-  id,
-  label = id,
-  height = "500px",
-  theme = "textmate",
-  default_code = "function() {\\n  \\n}"
-)
+stepUI(id, label = id, height = "500px", theme = "textmate", default_code = "")
 }
 \arguments{
 \item{id}{Module namespace ID. Must match the \code{id} passed to
@@ -23,7 +17,7 @@ stepUI(
 \item{theme}{Ace editor theme. Default \code{"textmate"}.}
 
 \item{default_code}{Initial code placed in the editor when no
-\code{initial_code} is supplied to \code{stepServer()}.}
+\code{initial_code} is supplied to \code{stepServer()}. Defaults to \code{""}.}
 }
 \value{
 A \code{tagList} suitable for inclusion anywhere in a Shiny UI.

@@ -1,171 +1,214 @@
 library(shiny)
 library(shinyStep)
 
-# ── Initial function code ────────────────────────────────────────────────────
-#
-# Three chained functions — each result feeds the next:
-#   raw  -->  normalize()  -->  normed
-#   normed  -->  classify()  -->  labels
-#   labels  -->  tally()  (prints summary, returns counts invisibly)
-#
-# Features exercised:
-#   normalize : if with early return(), return value fixup (normed <- normalize(...))
-#   classify  : while loop, nested if/else chain, return value fixup
-#   tally     : two sequential for loops, nested if, cat() output
-
-INIT_NORMALIZE <- '
-normalize <- function(x) {
-  mn  <- min(x)
-  mx  <- max(x)
-  rng <- mx - mn
-  if (rng == 0) {
-    cat("All values identical — returning zeros.\\n")
-    return(numeric(length(x)))
-  }
-  (x - mn) / rng
-}
-'
-
-INIT_CLASSIFY <- '
-classify <- function(x, breaks = c(0.33, 0.67)) {
-  out <- character(length(x))
-  i   <- 1L
-  while (i <= length(x)) {
-    v <- x[i]
-    if (v <= breaks[1]) {
-      out[i] <- "low"
-    } else if (v <= breaks[2]) {
-      out[i] <- "mid"
-    } else {
-      out[i] <- "high"
-    }
-    i <- i + 1L
-  }
-  out
-}
-'
-
-INIT_TALLY <- '
-tally <- function(labels) {
-  lvls   <- c("low", "mid", "high")
-  counts <- setNames(integer(length(lvls)), lvls)
-  for (lbl in labels) {
-    if (lbl %in% lvls) {
-      counts[lbl] <- counts[lbl] + 1L
-    }
-  }
-  cat("--- tally ---\\n")
-  for (nm in names(counts)) {
-    pct <- round(counts[nm] / length(labels) * 100)
-    cat(sprintf("  %-4s : %d (%d%%)\\n", nm, counts[nm], pct))
-  }
-  invisible(counts)
-}
-'
-
-MAIN_CODE <- 'raw    <- c(0.1, 2.3, 1.5, 0.8, 3.2, 1.1, 2.7, 0.4)
-normed <- normalize(raw)
-cat("Normalized:", paste(round(normed, 2), collapse = ", "), "\\n")
-labels <- classify(normed)
-cat("Labels:", paste(labels, collapse = ", "), "\\n")
-tally(labels)
-'
-
-# ── UI ───────────────────────────────────────────────────────────────────────
-
 ui <- fluidPage(
-  titlePanel("shinyStep — test app"),
+
+  tags$script(HTML(
+    "Shiny.addCustomMessageHandler('toggle_run_btn',function(msg){",
+    "  var el=document.getElementById('run_btn');",
+    "  if(el){ el.disabled=msg.disabled;",
+    "    el.style.opacity=msg.disabled?'0.45':'';",
+    "    el.style.cursor=msg.disabled?'not-allowed':'';",
+    "  }",
+    "});"
+  )),
 
   fluidRow(
-    # Left: main program panel
+
+    # ── Left: main script + run ──────────────────────────────────────────────
     column(3,
       wellPanel(
-        h4("Main program"),
-        tags$p(style = "font-size:12px; color:#666;",
-          "Functions are chained: normalize → classify → tally.",
-          "Toggle 'Debug' on each tab to enable or disable step-through, then click Run.",
-          "Use the console inside each debugger to inspect local variables."),
-        textAreaInput("main_code", label = NULL,
-                      value = MAIN_CODE,
-                      rows  = 8, width = "100%"),
-        actionButton("run_btn", "Run program",
+        h4("Main script"),
+        fileInput("upload_script", label = NULL,
+                  accept      = ".R",
+                  buttonLabel = tagList(icon("upload"), " Upload .R"),
+                  placeholder = "No file selected"),
+        textAreaInput("main_code", label = NULL, value = "",
+                      rows = 12, width = "100%",
+                      placeholder = "Upload a script or type main code here..."),
+        actionButton("run_btn", "Run Program",
                      icon  = icon("play"),
-                     class = "btn-primary btn-block"),
-        tags$hr(),
-        tags$p(style = "font-size:11px; color:#888;",
-          tags$b("Tips:"), tags$br(),
-          "• Next — step one expression", tags$br(),
-          "• Step Out — exit current loop/if block", tags$br(),
-          "• Continue — run to next pause", tags$br(),
-          "• Console — type any R expression, Enter to eval, ↑↓ for history")
+                     class = "btn-primary btn-block")
       )
     ),
 
-    # Right: one tab per debuggable function
+    # ── Right: hidden tabset ─────────────────────────────────────────────────
     column(9,
-      tabsetPanel(id = "fn_tabs",
-        tabPanel("normalize",
+      tabsetPanel(id = "view", type = "hidden",
+
+        # ── Main view ────────────────────────────────────────────────────────
+        tabPanel("main",
           br(),
-          stepUI("norm", label = "normalize",
-                 height       = "480px",
-                 default_code = INIT_NORMALIZE)
+          wellPanel(
+            h4("Milestone actions"),
+            fluidRow(
+              column(5,
+                textInput("act_fn_name", label = "Action 1 function name",
+                          value = "action1", placeholder = "e.g. action1")),
+              column(3, br(),
+                actionButton("edit_act_btn", "Edit Action 1",
+                             icon = icon("code"), class = "btn-sm btn-default",
+                             style = "margin-top:6px;"))
+            ),
+            fluidRow(
+              column(5,
+                textInput("act2_fn_name", label = "Action 2 function name",
+                          value = "action2", placeholder = "e.g. action2")),
+              column(3, br(),
+                actionButton("edit_act2_btn", "Edit Action 2",
+                             icon = icon("code"), class = "btn-sm btn-default",
+                             style = "margin-top:6px;"))
+            )
+          ),
+          wellPanel(
+            h4("Regular function"),
+            fluidRow(
+              column(5,
+                textInput("fn_fn_name", label = "Function name",
+                          value = "my_fn", placeholder = "e.g. my_fn")),
+              column(3, br(),
+                actionButton("edit_fn_btn", "Edit Function",
+                             icon = icon("code"), class = "btn-sm btn-default",
+                             style = "margin-top:6px;"))
+            )
+          )
         ),
-        tabPanel("classify",
+
+        # ── Action 1 editor ──────────────────────────────────────────────────
+        tabPanel("action",
           br(),
-          stepUI("cls", label = "classify",
-                 height       = "480px",
-                 default_code = INIT_CLASSIFY)
+          stepUI("act", label = "action1", height = "500px")
         ),
-        tabPanel("tally",
+
+        # ── Action 2 editor ──────────────────────────────────────────────────
+        tabPanel("action2",
           br(),
-          stepUI("tal", label = "tally",
-                 height       = "480px",
-                 default_code = INIT_TALLY)
+          stepUI("act2", label = "action2", height = "500px")
+        ),
+
+        # ── Regular function editor ───────────────────────────────────────────
+        tabPanel("fn",
+          br(),
+          stepUI("fn", label = "my_fn", height = "500px")
         )
       )
     )
   )
 )
 
-# ── Server ───────────────────────────────────────────────────────────────────
-
 server <- function(input, output, session) {
+
   runner  <- make_runner()
   run_log <- reactiveVal("")
 
-  norm_mod <- stepServer("norm", fn_name = "normalize",
-                         runner = runner, run_log = run_log,
-                         initial_code = INIT_NORMALIZE)
-  cls_mod  <- stepServer("cls",  fn_name = "classify",
-                         runner = runner, run_log = run_log,
-                         initial_code = INIT_CLASSIFY)
-  tal_mod  <- stepServer("tal",  fn_name = "tally",
-                         runner = runner, run_log = run_log,
-                         initial_code = INIT_TALLY)
+  # ── Action 1 ───────────────────────────────────────────────────────────────
+  act_saved_rv <- reactiveVal("")
+  act_restore  <- reactiveVal(0L)
+  act_initial  <- reactive({ act_restore(); act_saved_rv() })
 
-  # Auto-switch to the tab that owns the current pause
+  act_mod <- stepServer("act", fn_name = "action",
+                        runner = runner, run_log = run_log,
+                        initial_code = act_initial)
+
+  # ── Action 2 ───────────────────────────────────────────────────────────────
+  act2_saved_rv <- reactiveVal("")
+  act2_restore  <- reactiveVal(0L)
+  act2_initial  <- reactive({ act2_restore(); act2_saved_rv() })
+
+  act2_mod <- stepServer("act2", fn_name = "action2",
+                         runner = runner, run_log = run_log,
+                         initial_code = act2_initial)
+
+  # ── Regular function ────────────────────────────────────────────────────────
+  fn_saved_rv <- reactiveVal("")
+  fn_restore  <- reactiveVal(0L)
+  fn_initial  <- reactive({ fn_restore(); fn_saved_rv() })
+
+  fn_mod <- stepServer("fn", fn_name = "fn",
+                       runner = runner, run_log = run_log,
+                       initial_code = fn_initial)
+
+  # ── Grey out Run button while program is running or paused ─────────────────
   observe({
-    req(isTRUE(runner$state$paused))
-    owner <- runner$state$pause_owner
-    tab <- switch(owner,
-      normalize = "normalize",
-      classify  = "classify",
-      tally     = "tally",
-      NULL
-    )
-    if (!is.null(tab)) updateTabsetPanel(session, "fn_tabs", selected = tab)
+    running <- isTRUE(runner$state$running) || isTRUE(runner$state$paused)
+    session$sendCustomMessage("toggle_run_btn", list(disabled = running))
   })
 
-  observeEvent(input$run_btn, {
-    targets <- c(
-      if (norm_mod$enabled()) "normalize",
-      if (cls_mod$enabled())  "classify",
-      if (tal_mod$enabled())  "tally"
+  # ── Navigation ─────────────────────────────────────────────────────────────
+  observeEvent(input$edit_act_btn,  { updateTabsetPanel(session, "view", selected = "action")  })
+  observeEvent(input$edit_act2_btn, { updateTabsetPanel(session, "view", selected = "action2") })
+  observeEvent(input$edit_fn_btn,   { updateTabsetPanel(session, "view", selected = "fn")      })
+
+  observeEvent(act_mod$save_clicked(),  { act_saved_rv(act_mod$get_code())   }, ignoreInit = TRUE)
+  observeEvent(act2_mod$save_clicked(), { act2_saved_rv(act2_mod$get_code()) }, ignoreInit = TRUE)
+  observeEvent(fn_mod$save_clicked(),   { fn_saved_rv(fn_mod$get_code())     }, ignoreInit = TRUE)
+
+  observeEvent(act_mod$back_clicked(), {
+    act_restore(act_restore() + 1L)
+    updateTabsetPanel(session, "view", selected = "main")
+  }, ignoreInit = TRUE)
+
+  observeEvent(act2_mod$back_clicked(), {
+    act2_restore(act2_restore() + 1L)
+    updateTabsetPanel(session, "view", selected = "main")
+  }, ignoreInit = TRUE)
+
+  observeEvent(fn_mod$back_clicked(), {
+    fn_restore(fn_restore() + 1L)
+    updateTabsetPanel(session, "view", selected = "main")
+  }, ignoreInit = TRUE)
+
+  # ── Auto-switch to the editor for whichever function is paused ─────────────
+  observe({
+    req(isTRUE(runner$state$paused), identical(runner$state$pause_owner, "action"))
+    updateTabsetPanel(session, "view", selected = "action")
+  })
+
+  observe({
+    req(isTRUE(runner$state$paused), identical(runner$state$pause_owner, "action2"))
+    updateTabsetPanel(session, "view", selected = "action2")
+  })
+
+  observe({
+    req(isTRUE(runner$state$paused), identical(runner$state$pause_owner, "fn"))
+    updateTabsetPanel(session, "view", selected = "fn")
+  })
+
+  # ── Upload ─────────────────────────────────────────────────────────────────
+  observeEvent(input$upload_script, {
+    req(input$upload_script)
+    txt <- tryCatch(
+      paste(readLines(input$upload_script$datapath, warn = FALSE), collapse = "\n"),
+      error = function(e) NULL
     )
+    if (!is.null(txt))
+      updateTextAreaInput(session, "main_code", value = txt)
+  })
+
+  # ── Run ────────────────────────────────────────────────────────────────────
+  observeEvent(input$run_btn, {
+    act_name  <- trimws(input$act_fn_name)  %||% "action1"
+    act2_name <- trimws(input$act2_fn_name) %||% "action2"
+    fn_name   <- trimws(input$fn_fn_name)   %||% "my_fn"
+
+    main_code <- input$main_code
+    if (!identical(act_name,  "action")  && nzchar(act_name))
+      main_code <- paste0(act_name,  " <- action\n",  main_code)
+    if (!identical(act2_name, "action2") && nzchar(act2_name))
+      main_code <- paste0(act2_name, " <- action2\n", main_code)
+    if (!identical(fn_name,   "fn")      && nzchar(fn_name))
+      main_code <- paste0(fn_name,   " <- fn\n",      main_code)
+
+    debug_targets <- c(
+      if (act_mod$enabled())  "action"  else character(0),
+      if (act2_mod$enabled()) "action2" else character(0),
+      if (fn_mod$enabled())   "fn"      else character(0)
+    )
+
     run_program(
       runner        = runner,
-      main_code     = input$main_code,
-      debug_targets = targets,
+      main_code     = main_code,
+      debug_targets = debug_targets,
       run_log       = run_log
     )
   })

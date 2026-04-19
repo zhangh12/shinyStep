@@ -16,7 +16,8 @@
 #'
 #' @return A list of signals the host app can observe:
 #'   \describe{
-#'     \item{\code{back_clicked}}{Reactive — fires when the user clicks Back.}
+#'     \item{\code{save_clicked}}{Reactive — fires when the user clicks Save (persists in place).}
+#'     \item{\code{back_clicked}}{Reactive — fires when the user clicks Back (discards unsaved changes).}
 #'     \item{\code{fn_name}}{Character — the registered function name.}
 #'     \item{\code{get_code}}{Function — returns the current editor text.}
 #'     \item{\code{enabled}}{Reactive — \code{TRUE} when the Debug checkbox is ticked.}
@@ -143,6 +144,12 @@ stepServer <- function(id, fn_name, runner, run_log, initial_code = NULL) {
       }))
     })
 
+    # ── Enable/disable step controls based on pause state ───────────────────
+    shiny::observe({
+      disabled <- !(isTRUE(rs$paused) && identical(rs$pause_owner, fn_name))
+      session$sendCustomMessage(ns("toggle_controls"), list(disabled = disabled))
+    })
+
     # ── Step controls ────────────────────────────────────────────────────────
     shiny::observeEvent(input$btn_next, {
       shiny::req(isTRUE(rs$paused), identical(rs$pause_owner, fn_name))
@@ -188,6 +195,7 @@ stepServer <- function(id, fn_name, runner, run_log, initial_code = NULL) {
     # ── Return signals for the host app ─────────────────────────────────────
     list(
       back_clicked = shiny::reactive(input$back),
+      save_clicked = shiny::reactive(input$save),
       fn_name      = fn_name,
       get_code     = function() code_rv(),
       enabled      = shiny::reactive(isTRUE(input$enabled))

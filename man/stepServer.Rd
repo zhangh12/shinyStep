@@ -25,7 +25,8 @@ with the \code{default_code} set in \code{stepUI()}.}
 \value{
 A list of signals the host app can observe:
   \describe{
-    \item{\code{back_clicked}}{Reactive — fires when the user clicks Back.}
+    \item{\code{save_clicked}}{Reactive — fires when the user clicks Save (persists in place).}
+    \item{\code{back_clicked}}{Reactive — fires when the user clicks Back (discards unsaved changes).}
     \item{\code{fn_name}}{Character — the registered function name.}
     \item{\code{get_code}}{Function — returns the current editor text.}
     \item{\code{enabled}}{Reactive — \code{TRUE} when the Debug checkbox is ticked.}

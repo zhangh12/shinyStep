@@ -16,12 +16,22 @@
 # ── Stack helpers ────────────────────────────────────────────────────────────
 
 # Return the expression that will execute on the next step, or NULL.
+# NOTE: also returns NULL when the expression IS the NULL literal — use
+# has_current_expr() to distinguish "nothing left" from "expression is NULL".
 current_expr <- function(rs) {
   n <- length(rs$step_stack)
   if (n == 0L) return(NULL)
   top <- rs$step_stack[[n]]
   if (top$pc > length(top$exprs)) return(NULL)
   top$exprs[[top$pc]]
+}
+
+# TRUE iff the top frame has an expression at the current pc (even if NULL).
+has_current_expr <- function(rs) {
+  n <- length(rs$step_stack)
+  if (n == 0L) return(FALSE)
+  top <- rs$step_stack[[n]]
+  top$pc <= length(top$exprs)
 }
 
 # Advance the top frame's pc; handle frame exhaustion and popping.
@@ -79,6 +89,7 @@ current_expr <- function(rs) {
     rs$step_stack <- stack[-n]
     if (length(rs$step_stack) == 0L) {
       .fixup_pending_assign(rs)
+      rs$debug_skip  <- c(rs$debug_skip, rs$pause_owner)
       rs$paused      <- FALSE
       rs$pause_owner <- NULL
       append_log(run_log, "Function complete.", type = "resume")
@@ -99,6 +110,7 @@ current_expr <- function(rs) {
     if (top$type %in% loop_types) break
   }
   if (length(rs$step_stack) == 0L) {
+    rs$debug_skip  <- c(rs$debug_skip, rs$pause_owner)
     rs$paused      <- FALSE
     rs$pause_owner <- NULL
     append_log(run_log, "Function complete (break).", type = "resume")
@@ -117,6 +129,7 @@ current_expr <- function(rs) {
     n <- length(rs$step_stack)
   }
   if (n == 0L) {
+    rs$debug_skip  <- c(rs$debug_skip, rs$pause_owner)
     rs$paused      <- FALSE
     rs$pause_owner <- NULL
     append_log(run_log, "Function complete (next).", type = "resume")
@@ -142,8 +155,8 @@ current_expr <- function(rs) {
 
 .step_one <- function(runner, run_log) {
   rs   <- runner$state
+  if (!has_current_expr(rs)) return(invisible())
   expr <- current_expr(rs)
-  if (is.null(expr)) return(invisible())
 
   # ── Special flow-control keywords ────────────────────────────────────────
   if (is_return_expr(expr)) {
@@ -151,6 +164,7 @@ current_expr <- function(rs) {
       tryCatch(eval(expr[[2L]], envir = rs$fun_frame), error = function(e) NULL)
     else invisible(NULL)
     .fixup_pending_assign(rs)
+    rs$debug_skip  <- c(rs$debug_skip, rs$pause_owner)
     rs$step_stack  <- list()
     rs$paused      <- FALSE
     rs$pause_owner <- NULL
@@ -188,8 +202,8 @@ step_fn <- function(runner, run_log) {
   rs <- runner$state
   if (!isTRUE(rs$paused)) return(invisible())
 
+  if (!has_current_expr(rs)) return(invisible())
   expr <- current_expr(rs)
-  if (is.null(expr)) return(invisible())
 
   if (!is_compound(expr)) {
     .step_one(runner, run_log)
@@ -378,14 +392,45 @@ run_main_until_pause_or_end <- function(runner, run_log) {
     if (isTRUE(rs$paused) || isTRUE(rs$error)) break
     res <- eval_with_capture(exprs[[rs$main_pc]], rs$env)
     if (nzchar(res$output)) append_log(run_log, res$output)
+    # Check pause BEFORE error: the proxy sets rs$paused then throws a condition
+    # to abort any enclosing synchronous call (e.g. controller$run()).
+    # That condition may be re-wrapped as a generic error by third-party code,
+    # so checking rs$paused first ensures it is treated as a pause, not an error.
+    if (isTRUE(rs$paused)) {
+      rs$fn_return_value   <- NULL
+      rs$pending_call_expr <- exprs[[rs$main_pc]]
+      # Direct call: the main expression IS a call to the paused function
+      # (e.g. `action1(x)` or `result <- action1(x)`).  Advance past it;
+      # .fixup_pending_assign handles any assignment on the left-hand side.
+      #
+      # Nested call: the paused function was called from inside another
+      # expression (e.g. `controller$run()` which internally calls action1).
+      # Keep main_pc so the outer expression is re-executed after debugging —
+      # the just-debugged function is in debug_skip and passes through silently,
+      # allowing subsequent pause points in the same outer call to fire.
+      pexpr     <- exprs[[rs$main_pc]]
+      call_expr <- if (is.call(pexpr) &&
+                       (identical(pexpr[[1L]], as.name("<-")) ||
+                        identical(pexpr[[1L]], as.name("=")))) pexpr[[3L]] else pexpr
+      if (is.call(call_expr) && identical(call_expr[[1L]], as.name(rs$pause_owner))) {
+        # Direct call: main expression IS the paused function — advance past it.
+        # .fixup_pending_assign handles any assignment on the left-hand side.
+        rs$main_pc <- rs$main_pc + 1L
+      } else {
+        # Nested call: the paused function was invoked from inside another
+        # expression (e.g. controller$run() called action1 internally).
+        # Reset to pc = 1 so all setup code reruns, recreating fresh R6 objects
+        # before the outer call is reached again.  The just-debugged function is
+        # in debug_skip and passes through silently on the replay, allowing the
+        # next pause point (e.g. action2) to fire.
+        rs$main_pc <- 1L
+      }
+      break
+    }
     if (!is.null(res$error)) {
       append_log(run_log, paste0("Main: ", conditionMessage(res$error)), type = "error")
       rs$error <- TRUE; rs$running <- FALSE
       return(invisible())
-    }
-    if (isTRUE(rs$paused)) {
-      rs$fn_return_value   <- NULL
-      rs$pending_call_expr <- exprs[[rs$main_pc]]
     }
     rs$main_pc <- rs$main_pc + 1L
   }
@@ -408,6 +453,7 @@ run_main_until_pause_or_end <- function(runner, run_log) {
   rs$ended              <- FALSE
   rs$error              <- FALSE
   rs$debug_targets      <- debug_targets
+  rs$debug_skip         <- character(0)
   rs$step_stack         <- list()
   rs$env                <- new.env(parent = .GlobalEnv)
   rs$fun_frame          <- NULL
@@ -462,16 +508,28 @@ run_main_until_pause_or_end <- function(runner, run_log) {
       .user_fn  <- user_fns[[fn_name]]
       .line_map <- line_maps[[fn_name]]
 
-      rs$env[[.name]] <- function(...) {
-        call_args <- list(...)
+      # Build a proxy whose formals mirror the user function's formals (so that
+      # any external signature validation — e.g. TrialSimulator checking that
+      # the first arg is named "trial" — sees the correct signature).
+      # We always append "..." if the user function doesn't have it, so the
+      # body can safely collect extra arguments.
+      .proxy <- function() {
+        # Collect all named args from this frame + any extra "..." args
+        .self_fmls <- names(formals(sys.function()))
+        .named     <- .self_fmls[.self_fmls != "..."]
+        .env       <- environment()
+        call_args  <- lapply(.named, function(nm) get(nm, envir = .env, inherits = FALSE))
+        if ("..." %in% .self_fmls)
+          call_args <- c(call_args, eval(quote(list(...)), envir = .env))
 
-        if (.name %in% rs$debug_targets) {
+        if (.name %in% rs$debug_targets && !(.name %in% rs$debug_skip)) {
           # Set up paused frame with actual call arguments + defaults
           rs$fun_frame <- new.env(parent = rs$env)
           fmls      <- formals(.user_fn)
           fml_names <- names(fmls)
           for (i in seq_along(fml_names)) {
             nm <- fml_names[[i]]
+            if (nm == "...") next
             if (i <= length(call_args)) {
               assign(nm, call_args[[i]], envir = rs$fun_frame)
             } else if (!identical(fmls[[nm]], quote(expr = ))) {
@@ -493,7 +551,14 @@ run_main_until_pause_or_end <- function(runner, run_log) {
           rs$paused      <- TRUE
           rs$pause_owner <- .name
           append_log(run_log, paste0("Entered ", .name, "()"), type = "pause")
-          return(invisible(NULL))
+          # Throw a typed condition so that any enclosing synchronous call
+          # (e.g. controller$run() from TrialSimulator) is aborted and control
+          # returns to the Shiny event loop.  run_main_until_pause_or_end checks
+          # rs$paused before the error field, so this is treated as a pause.
+          stop(structure(
+            list(message = paste0("shinyStep pause at ", .name)),
+            class = c("shinyStep_pause", "error", "condition")
+          ))
         }
 
         # Not a debug target — run silently
@@ -507,6 +572,13 @@ run_main_until_pause_or_end <- function(runner, run_log) {
         )
         invisible(res)
       }
+
+      # Give the proxy the user function's formals (adds "..." if absent)
+      .uf_fmls <- formals(.user_fn)
+      if (!("..." %in% names(.uf_fmls))) .uf_fmls <- c(.uf_fmls, alist(... = ))
+      formals(.proxy) <- .uf_fmls
+
+      rs$env[[.name]] <- .proxy
     })
   }
 

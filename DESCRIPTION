@@ -1,7 +1,7 @@
 Package: shinyStep
 Type: Package
 Title: Interactive Step Debugger for R Functions in Shiny Apps
-Version: 0.2.0
+Version: 0.3.0
 Authors@R: person("Han", "Zhang", email = "zhangh.ustc@gmail.com", role = c("aut", "cre"))
 Description: Embeds an interactive step debugger in a Shiny application.
     Two module types are provided: solo editors for testing a function in

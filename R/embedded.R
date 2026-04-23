@@ -24,15 +24,17 @@
 #' @return A \code{tagList} suitable for inclusion anywhere in a Shiny UI.
 #' @export
 embeddedStepUI <- function(id,
-                           label        = id,
-                           height       = "500px",
-                           theme        = "textmate",
-                           default_body = "") {
+                           label           = id,
+                           height          = "500px",
+                           theme           = "textmate",
+                           default_body    = "",
+                           default_fn_name = "") {
   .step_ui(id,
            label           = label,
            height          = height,
            theme           = theme,
            default_body    = default_body,
+           default_fn_name = default_fn_name,
            show_debug      = TRUE,
            show_test       = FALSE,
            show_test_value = FALSE)

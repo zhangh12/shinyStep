@@ -51,13 +51,16 @@
     "  tick();",
     "});",
     "Shiny.addCustomMessageHandler('", ns("toggle_controls"), "',function(msg){",
-    "  ['", ns("btn_next"), "','", ns("btn_step_out"), "','",
-         ns("btn_continue"), "','", ns("btn_stop"), "'].forEach(function(id){",
-    "    var el=document.getElementById(id);",
-    "    if(el){ el.disabled=msg.disabled;",
-    "      el.style.opacity=msg.disabled?'0.45':'';",
-    "      el.style.cursor=msg.disabled?'not-allowed':'';",
-    "    }",
+    "  var map={'", ns("btn_next"), "':msg.next_disabled,",
+    "           '", ns("btn_step_out"), "':msg.step_out_disabled,",
+    "           '", ns("btn_continue"), "':msg.continue_disabled,",
+    "           '", ns("btn_stop"), "':msg.stop_disabled};",
+    "  Object.keys(map).forEach(function(id){",
+    "    var el=document.getElementById(id); if(!el) return;",
+    "    var d=!!map[id];",
+    "    el.disabled=d;",
+    "    el.style.opacity=d?'0.45':'';",
+    "    el.style.cursor=d?'not-allowed':'';",
     "  });",
     "});",
     "var _hl={marker:null,gutter:null};",
@@ -115,22 +118,27 @@
   # rendered: parent apps that re-rendered the UI on every keystroke to "sync"
   # the toolbar name caused focus drift, and a duplicate of the fn_name input
   # just below adds no value.  The fn_name input is the source of truth.
+  # `show_test` kept in the signature for backward compatibility; solo mode's
+  # Test action is now merged into the step-controls' Next button (see
+  # .editor_and_debug_pane) so there is no separate toolbar Test button.
   shiny::div(class = "sStep-toolbar",
     shiny::actionButton(ns("back"), label = NULL,
                         icon  = shiny::icon("arrow-left"),
                         class = "btn-sm btn-default",
                         title = "Cancel — discard changes"),
-    shiny::actionButton(ns("save"), "Save",
-                        icon  = shiny::icon("floppy-disk"),
-                        class = "btn-sm btn-success",
-                        title = "Save function"),
+    shiny::tagAppendAttributes(
+      shiny::actionButton(ns("save"), "Save",
+                          icon  = shiny::icon("floppy-disk"),
+                          class = "btn-sm btn-success",
+                          title = "Save function"),
+      # Fires BEFORE click. Forces the focused text input to blur, which
+      # triggers its change event and an immediate (non-debounced) push of
+      # the current value to the server — so a user who types into an
+      # argument field and clicks Save without defocusing still ships the
+      # final value before save_clicked is observed by the parent.
+      onmousedown = "if(document.activeElement&&document.activeElement!==this)document.activeElement.blur();"),
     shiny::uiOutput(ns("status_badge"), inline = TRUE),
     shiny::div(class = "sStep-toolbar-right",
-      if (show_test)
-        shiny::actionButton(ns("btn_test"), "Test",
-                            icon  = shiny::icon("play"),
-                            class = "btn-sm btn-primary",
-                            title = "Run this function with the test values below"),
       if (show_debug)
         shiny::checkboxInput(ns("enabled"), label = "Debug", value = TRUE)
     )
@@ -149,7 +157,13 @@
   )
 }
 
-.editor_and_debug_pane <- function(ns, height, theme, default_body) {
+.editor_and_debug_pane <- function(ns, height, theme, default_body, show_test) {
+  # In solo mode (show_test = TRUE) btn_next doubles as the Test entry-point:
+  # its initial label is "Test" with a play icon, and the server swaps it to
+  # "Next" (forward icon) while the runner is paused inside this function.
+  # Step Out / Continue / Stop stay disabled until the runner is paused here.
+  next_label <- if (isTRUE(show_test)) "Test" else "Next"
+  next_icon  <- if (isTRUE(show_test)) shiny::icon("play") else shiny::icon("forward")
   shiny::fluidRow(
     shiny::column(6,
       shinyAce::aceEditor(
@@ -169,7 +183,7 @@
         class = "sStep-right-pane",
         style = paste0("height:", height, ";"),
         shiny::div(class = "sStep-controls",
-          shiny::actionButton(ns("btn_next"),     "Next",
+          shiny::actionButton(ns("btn_next"),     next_label, icon = next_icon,
                               class = "btn-sm btn-warning"),
           shiny::actionButton(ns("btn_step_out"), "Step Out",
                               class = "btn-sm btn-success",
@@ -199,7 +213,8 @@
 
 # Full UI for one module (solo or embedded).
 .step_ui <- function(id, label, height, theme, default_body,
-                     show_debug, show_test, show_test_value) {
+                     show_debug, show_test, show_test_value,
+                     default_fn_name = "") {
   ns <- shiny::NS(id)
   shiny::tagList(
     shiny::tags$head(
@@ -209,11 +224,11 @@
     .toolbar(ns, label, show_debug = show_debug, show_test = show_test),
     shiny::div(class = "sStep-name-row",
       shiny::tags$label(class = "sStep-name-label", "Function name"),
-      shiny::textInput(ns("fn_name"), label = NULL, value = "",
+      shiny::textInput(ns("fn_name"), label = NULL, value = default_fn_name,
                        placeholder = "e.g. my_fn", width = "260px")
     ),
     .args_card(ns, show_test_value = show_test_value),
-    .editor_and_debug_pane(ns, height, theme, default_body)
+    .editor_and_debug_pane(ns, height, theme, default_body, show_test = show_test)
   )
 }
 
@@ -255,7 +270,8 @@
                               initial_fn_name,
                               initial_body,
                               initial_args,
-                              show_test_value) {
+                              show_test_value,
+                              lock_first_arg = FALSE) {
   ns <- session$ns
   rs <- runner$state
 
@@ -284,6 +300,14 @@
   args_ids_rv <- shiny::reactiveVal(
     vapply(start_args, `[[`, character(1L), "id")
   )
+  # Content-aware invalidator. Bumped at safe moments (Save, Back, parent
+  # initial_args echo) so renderUI re-runs and the output HTML cache reflects
+  # current args_rv values. Without this, the cache reflects the state from the
+  # last row-structure change: if the user types into a row after adding it and
+  # then the DOM is torn down + remounted (e.g. Back → Reopen), Shiny sends the
+  # stale cached HTML, input bindings push empty values back to args_rv, and
+  # the just-typed values are lost.
+  args_render_tick <- shiny::reactiveVal(0L)
   modified_rv <- shiny::reactiveVal(FALSE)
 
   # Seed the fn_name textInput from state (first-render and whenever initial
@@ -317,6 +341,10 @@
   if (shiny::is.reactive(initial_args)) {
     shiny::observeEvent(initial_args(), {
       new_args <- .normalise_arg_list(initial_args())
+      # Always bump the render tick: on re-mount after a save the parent state
+      # echoes the same args back through initial_args, and we need renderUI
+      # to re-run so its HTML cache picks up current args_rv values.
+      args_render_tick(shiny::isolate(args_render_tick()) + 1L)
       if (identical(new_args, shiny::isolate(args_rv()))) return()
       args_rv(new_args)
       new_ids <- vapply(new_args, `[[`, character(1L), "id")
@@ -382,18 +410,48 @@
 
   # RenderUI depends ONLY on args_ids_rv — which changes on add/remove but not
   # on typing — so the DOM inputs are not torn down while the user is editing.
+  # When lock_first_arg = TRUE, the first row's name field is readonly and its
+  # delete button is replaced by a placeholder — enforcing a caller-specified
+  # reserved first parameter (e.g. `n` for TrialDesigner generators).
   output$args_ui <- shiny::renderUI({
     ids <- args_ids_rv()
+    args_render_tick()   # refresh HTML cache on Save / Back / parent echo
     args <- shiny::isolate(args_rv())
     if (length(ids) == 0L) {
       return(shiny::div(class = "sStep-args-empty",
                         "No arguments. Click + Add argument below."))
     }
-    shiny::tagList(lapply(args, function(a) {
-      shiny::div(class = "sStep-arg-row",
+    shiny::tagList(lapply(seq_along(args), function(i) {
+      a <- args[[i]]
+      is_locked <- isTRUE(lock_first_arg) && i == 1L
+      name_field <- if (is_locked) {
+        shiny::div(class = "form-group shiny-input-container",
+          style = "width: 140px; display: inline-block; vertical-align: top;",
+          shiny::tags$input(
+            id       = ns(paste0("arg_name_", a$id)),
+            type     = "text",
+            class    = "form-control",
+            value    = a$name,
+            readonly = "readonly",
+            style    = "background-color:#f0f0f0;cursor:not-allowed;"
+          )
+        )
+      } else {
         shiny::textInput(ns(paste0("arg_name_", a$id)), label = NULL,
                          value = a$name, width = "140px",
-                         placeholder = "name"),
+                         placeholder = "name")
+      }
+      del_btn <- if (is_locked) {
+        shiny::div(style = "display:inline-block;width:28px;")
+      } else {
+        shiny::actionButton(ns(paste0("rm_arg_", a$id)), label = NULL,
+                            icon = shiny::icon("xmark"),
+                            class = "btn-xs btn-default sStep-arg-del",
+                            title = "Remove argument",
+                            tabindex = "-1")
+      }
+      shiny::div(class = "sStep-arg-row",
+        name_field,
         shiny::textInput(ns(paste0("arg_default_", a$id)), label = NULL,
                          value = a$default, width = "160px",
                          placeholder = "default (optional)"),
@@ -401,11 +459,7 @@
           shiny::textInput(ns(paste0("arg_testval_", a$id)), label = NULL,
                            value = a$test_value, width = "160px",
                            placeholder = "test value"),
-        shiny::actionButton(ns(paste0("rm_arg_", a$id)), label = NULL,
-                            icon = shiny::icon("xmark"),
-                            class = "btn-xs btn-default sStep-arg-del",
-                            title = "Remove argument",
-                            tabindex = "-1")
+        del_btn
       )
     }))
   })
@@ -530,11 +584,33 @@
     }))
   })
 
-  # ── Step-control enable/disable ──────────────────────────────────────────
+  # ── Step-control enable/disable + merged Test/Next label (solo) ──────────
+  # Solo mode: btn_next is always enabled (acts as "Test" until the runner
+  # pauses inside this fn, then becomes "Next"). Step Out / Continue / Stop
+  # remain disabled until paused_here.
+  # Embedded mode: all four buttons disabled until paused_here — the host's
+  # Run Program button is the entry point.
   shiny::observe({
     fn_name  <- fn_name_rv()
-    disabled <- !(isTRUE(rs$paused) && identical(rs$pause_owner, fn_name))
-    session$sendCustomMessage(ns("toggle_controls"), list(disabled = disabled))
+    paused_here <- isTRUE(rs$paused) && identical(rs$pause_owner, fn_name)
+    next_disabled <- if (identical(type, "solo")) FALSE else !paused_here
+    session$sendCustomMessage(ns("toggle_controls"), list(
+      next_disabled     = next_disabled,
+      step_out_disabled = !paused_here,
+      continue_disabled = !paused_here,
+      stop_disabled     = !paused_here
+    ))
+    if (identical(type, "solo")) {
+      if (paused_here) {
+        shiny::updateActionButton(session, "btn_next",
+                                  label = "Next",
+                                  icon  = shiny::icon("forward"))
+      } else {
+        shiny::updateActionButton(session, "btn_next",
+                                  label = "Test",
+                                  icon  = shiny::icon("play"))
+      }
+    }
   })
 
   .paused_here <- function() {
@@ -588,9 +664,22 @@
   shiny::observeEvent(input$clear_log, { run_log("") }, ignoreInit = TRUE)
 
   # ── Return handles ───────────────────────────────────────────────────────
+  # save_clicked forces a DOM→args_rv snapshot on read. Without this, a parent
+  # observer that reads mod$args() right after save_clicked fires can see stale
+  # args when the user clicks Save while a text input still holds an unpushed
+  # pending value (common: type a test_value, immediately click Save).
   list(
     back_clicked = shiny::reactive(input$back),
-    save_clicked = shiny::reactive(input$save),
+    save_clicked = shiny::reactive({
+      val <- input$save
+      .snapshot_args()
+      # Refresh renderUI cache so the current args_rv values are baked into the
+      # output HTML. Without this, a later DOM remount (Back → Reopen) would
+      # receive a stale cache whose empty value attributes overwrite the saved
+      # args when input bindings re-bind.
+      args_render_tick(shiny::isolate(args_render_tick()) + 1L)
+      val
+    }),
     fn_name      = shiny::reactive(fn_name_rv()),
     body         = shiny::reactive(body_rv()),
     args         = shiny::reactive(args_rv()),

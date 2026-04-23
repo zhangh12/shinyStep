@@ -11,41 +11,51 @@ soloStepServer(
   initial_fn_name = NULL,
   initial_body = NULL,
   initial_args = NULL,
-  prelude = NULL
+  prelude = NULL,
+  lock_first_arg = FALSE
 )
 }
 \arguments{
-\item{id}{Module namespace ID. Must match \code{soloStepUI()}.}
+\item{id}{Module namespace ID. Must match \code{\link{soloStepUI}()}.}
 
-\item{runner}{Runner from \code{make_runner()}.}
+\item{runner}{Runner object from \code{\link{make_runner}()}.}
 
-\item{run_log}{A \code{reactiveVal(character(1))} shared across modules.}
+\item{run_log}{A \code{reactiveVal(character(1))} shared across all modules
+and the host app.}
 
 \item{initial_fn_name}{Initial function name — static string or reactive.
-If blank, defaults to the module id.}
+Leave \code{NULL} or \code{""} to start unnamed.}
 
 \item{initial_body}{Initial function body — static string or reactive.}
 
-\item{initial_args}{Initial argument specs — list of
+\item{initial_args}{Initial argument specs — a list of
 \code{list(name, default, test_value)} entries, or a reactive returning
-such a list.}
+such a list. \code{test_value} is used by the Test button;
+\code{default} is the function signature default.}
 
-\item{prelude}{Optional character string (or reactive returning one)
-prepended to the generated \code{main_code} on every Test click. Use it
-to load packages or define helpers the function depends on, e.g.
-\code{"library(dplyr)"}. Parsed as top-level R.}
+\item{prelude}{Optional character string or reactive prepended to the
+generated call on every Test click. Use it to load packages or define
+helpers the function needs, e.g. \code{"library(dplyr)"}.}
+
+\item{lock_first_arg}{If \code{TRUE}, the first argument's name field is
+readonly and its delete button is hidden. Use this when the caller
+requires a reserved first parameter (e.g. a simulator that passes
+\code{n} into every generator).}
 }
 \value{
-A list of reactives/handles:
+A named list:
   \describe{
-    \item{\code{save_clicked}, \code{back_clicked}}{Reactives firing on
-      Save / Back clicks.}
-    \item{\code{fn_name}}{Reactive — current function name.}
-    \item{\code{get_fn_name}, \code{get_body}, \code{get_args}}{Functions
-      returning the current persisted state.}
+    \item{\code{save_clicked}, \code{back_clicked}}{Reactives that fire on
+      Save / Back clicks. Wire these in the host app to persist or discard
+      the editor state.}
+    \item{\code{fn_name}}{Reactive returning the current function name.}
+    \item{\code{get_fn_name()}, \code{get_body()}, \code{get_args()}}{
+      Functions returning the current editor state (isolated reads).}
   }
 }
 \description{
-Registers the module with the runner, manages the editor, argument table,
-and function-name input, and wires the built-in Test button.
+Registers the function with the shared runner, manages the editor and
+argument table, and wires the \strong{Test} button. Clicking Test assembles
+\code{fn_name(arg = test_value, ...)} and calls \code{\link{run_program}()}
+with \code{debug_targets = fn_name}, pausing at the first body expression.
 }

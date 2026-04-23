@@ -9,29 +9,35 @@ soloStepUI(
   label = id,
   height = "500px",
   theme = "textmate",
-  default_body = ""
+  default_body = "",
+  default_fn_name = ""
 )
 }
 \arguments{
 \item{id}{Module namespace ID.}
 
-\item{label}{Display label in the toolbar. Defaults to the id.}
+\item{label}{Toolbar label. Defaults to \code{id}.}
 
-\item{height}{Ace editor height as a CSS string.}
+\item{height}{Ace editor height as a CSS string (e.g. \code{"500px"}).}
 
-\item{theme}{Ace editor theme.}
+\item{theme}{Ace editor theme name (passed to \pkg{shinyAce}).}
 
-\item{default_body}{Initial body text placed in the editor.}
+\item{default_body}{Initial body text pre-filled in the editor.}
+
+\item{default_fn_name}{Initial function name pre-filled in the name input.
+Use this when re-mounting the editor for an already-named function so the
+field is populated on first render (the reactive \code{initial_fn_name}
+alone cannot seed the DOM that is created later).}
 }
 \value{
 A \code{tagList} suitable for inclusion anywhere in a Shiny UI.
 }
 \description{
-A solo module tests a single function in isolation. The editor holds the
-function body only — do not type \code{fn_name <- function(...) \{ ... \}}
-wrappers (they are stripped defensively if present). The function name and
-argument list live above the editor as structured inputs, with a "test
-value" column so each argument can be exercised.
+Renders the function editor with a \strong{Test} button. The editor holds
+the function body only — do not type \code{fn_name <- function(...) \{ \}}
+wrappers; they are stripped defensively if present. The function name and
+argument list (including test values) live in structured inputs above the
+editor.
 }
 \details{
 Pair with \code{\link{soloStepServer}()} using the same \code{id}.

@@ -21,18 +21,24 @@
 #' @param height Ace editor height as a CSS string (e.g. \code{"500px"}).
 #' @param theme Ace editor theme name (passed to \pkg{shinyAce}).
 #' @param default_body Initial body text pre-filled in the editor.
+#' @param default_fn_name Initial function name pre-filled in the name input.
+#'   Use this when re-mounting the editor for an already-named function so the
+#'   field is populated on first render (the reactive \code{initial_fn_name}
+#'   alone cannot seed the DOM that is created later).
 #' @return A \code{tagList} suitable for inclusion anywhere in a Shiny UI.
 #' @export
 soloStepUI <- function(id,
-                       label        = id,
-                       height       = "500px",
-                       theme        = "textmate",
-                       default_body = "") {
+                       label           = id,
+                       height          = "500px",
+                       theme           = "textmate",
+                       default_body    = "",
+                       default_fn_name = "") {
   .step_ui(id,
            label           = label,
            height          = height,
            theme           = theme,
            default_body    = default_body,
+           default_fn_name = default_fn_name,
            show_debug      = FALSE,
            show_test       = TRUE,
            show_test_value = TRUE)
@@ -59,6 +65,10 @@ soloStepUI <- function(id,
 #' @param prelude Optional character string or reactive prepended to the
 #'   generated call on every Test click. Use it to load packages or define
 #'   helpers the function needs, e.g. \code{"library(dplyr)"}.
+#' @param lock_first_arg If \code{TRUE}, the first argument's name field is
+#'   readonly and its delete button is hidden. Use this when the caller
+#'   requires a reserved first parameter (e.g. a simulator that passes
+#'   \code{n} into every generator).
 #'
 #' @return A named list:
 #'   \describe{
@@ -74,7 +84,8 @@ soloStepServer <- function(id, runner, run_log,
                            initial_fn_name = NULL,
                            initial_body    = NULL,
                            initial_args    = NULL,
-                           prelude         = NULL) {
+                           prelude         = NULL,
+                           lock_first_arg  = FALSE) {
   shiny::moduleServer(id, function(input, output, session) {
 
     handles <- .step_server_core(
@@ -85,12 +96,22 @@ soloStepServer <- function(id, runner, run_log,
       initial_fn_name = initial_fn_name,
       initial_body    = initial_body,
       initial_args    = initial_args,
-      show_test_value = TRUE
+      show_test_value = TRUE,
+      lock_first_arg  = lock_first_arg
     )
 
-    # ── Test button: run fn_name(<test values>) in isolation ──────────────
-    shiny::observeEvent(input$btn_test, {
+    # ── Merged Test/Next button: run fn_name(<test values>) in isolation ─
+    # btn_next doubles as the Test entry-point in solo mode (see
+    # .editor_and_debug_pane). When the runner is already paused inside this
+    # function, editor_core's own btn_next observer handles stepping; the
+    # guard below makes this observer a no-op in that case so we don't also
+    # kick off a fresh run on top of the paused one.
+    rs <- runner$state
+    shiny::observeEvent(input$btn_next, {
       fn_name <- handles$get_fn_name()
+      paused_here <- isTRUE(rs$paused) && identical(rs$pause_owner, fn_name)
+      if (paused_here) return()          # step_fn handled in editor_core.R
+      if (isTRUE(rs$running)) return()   # already mid-run; ignore
       if (!is_valid_r_name(fn_name)) {
         append_log(run_log,
                    paste0("Invalid function name: '", fn_name, "'"),

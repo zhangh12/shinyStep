@@ -14,33 +14,37 @@ embeddedStepServer(
 )
 }
 \arguments{
-\item{id}{Module namespace ID. Must match \code{embeddedStepUI()}.}
+\item{id}{Module namespace ID. Must match \code{\link{embeddedStepUI}()}.}
 
-\item{runner}{Runner from \code{make_runner()}.}
+\item{runner}{Runner object from \code{\link{make_runner}()}.}
 
-\item{run_log}{A \code{reactiveVal(character(1))} shared across modules.}
+\item{run_log}{A \code{reactiveVal(character(1))} shared across all modules
+and the host app.}
 
 \item{initial_fn_name}{Initial function name — static string or reactive.}
 
-\item{initial_body}{Initial body text — static string or reactive.}
+\item{initial_body}{Initial function body — static string or reactive.}
 
-\item{initial_args}{Initial argument specs — list of
-\code{list(name, default)} entries, or a reactive returning such a list.}
+\item{initial_args}{Initial argument specs — a list of
+\code{list(name, default)} entries, or a reactive returning such a list.
+(No \code{test_value} column — embedded functions are called from
+\code{main_code}, not via a Test button.)}
 }
 \value{
-A list of reactives/handles:
+A named list:
   \describe{
-    \item{\code{save_clicked}, \code{back_clicked}}{Reactives firing on
+    \item{\code{save_clicked}, \code{back_clicked}}{Reactives that fire on
       Save / Back clicks.}
-    \item{\code{fn_name}}{Reactive — current function name.}
-    \item{\code{enabled}}{Reactive — \code{TRUE} when Debug is ticked.}
-    \item{\code{get_fn_name}, \code{get_body}, \code{get_args}}{Functions
-      returning the current persisted state.}
+    \item{\code{fn_name}}{Reactive returning the current function name.}
+    \item{\code{enabled}}{Reactive — \code{TRUE} when the Debug checkbox
+      is ticked.}
+    \item{\code{get_fn_name()}, \code{get_body()}, \code{get_args()}}{
+      Functions returning the current editor state (isolated reads).}
   }
 }
 \description{
-Registers the module with the runner, manages the editor, argument table,
-function-name input, and the Debug checkbox. The host app is responsible
-for calling \code{\link{run_program}()} with its own \code{main_code}; this
-module contributes a pause-point automatically when Debug is ticked.
+Registers the function with the shared runner and manages the editor,
+argument table, and Debug checkbox. The host app calls
+\code{\link{run_program}()} with its own \code{main_code}; this module
+contributes a pause point automatically whenever Debug is ticked.
 }

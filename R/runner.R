@@ -1,15 +1,17 @@
 #' Create a shared debugger runner
 #'
 #' Call once inside your Shiny \code{server()} function. Pass the returned
-#' object to every \code{stepServer()} call and to \code{run_program()}.
+#' object to every \code{\link{soloStepServer}()} /
+#' \code{\link{embeddedStepServer}()} call and to \code{\link{run_program}()}.
 #'
-#' @return A list with three fields:
+#' @return A list with three named fields:
 #'   \describe{
-#'     \item{state}{A \code{reactiveValues} holding all execution state.}
-#'     \item{registry}{Environment mapping function names to their current code
-#'       accessors (populated by \code{stepServer()}).}
-#'     \item{pd}{Environment of \code{getParseData()} results keyed by function
-#'       name (populated at run time, used for line-number tracking).}
+#'     \item{state}{A \code{reactiveValues} holding all execution state
+#'       (running, paused, step stack, environments, etc.).}
+#'     \item{registry}{Environment mapping module ids to their accessor
+#'       functions. Populated automatically by each step-server module.}
+#'     \item{pd}{Environment of \code{getParseData()} results keyed by module
+#'       id. Populated at run time and used for editor line-number tracking.}
 #'   }
 #' @export
 make_runner <- function() {
@@ -56,8 +58,8 @@ make_runner <- function() {
       fn_return_value   = NULL
     ),
 
-    # Plain env: fn_name -> list(get_code = function())
-    # Populated by stepServer(); read by run_program().
+    # Plain env: module_id -> list(type, fn_name, get_body, get_args, enabled)
+    # Populated by soloStepServer() / embeddedStepServer(); read by run_program().
     registry = new.env(parent = emptyenv())
   )
 }

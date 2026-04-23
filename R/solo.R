@@ -1,25 +1,26 @@
 # ── solo.R ────────────────────────────────────────────────────────────────────
-# Solo-mode module: the user edits one function's body + signature, supplies
-# test values, and clicks Test. The package assembles `fn_name(args...)` and
-# runs it with debug_targets = fn_name, so the editor pauses at the first
-# body statement. Solo modules are never pause-points of a host-driven
-# run_program() — they exist only to exercise a function in isolation.
+# Solo-mode module: the user edits a function body and signature, supplies
+# test values for each argument, and clicks Test. The package assembles
+# `fn_name(arg = value, ...)` and calls run_program() with debug_targets =
+# fn_name, so execution pauses at the first body expression. Solo modules are
+# never auto-paused during a host-driven run_program() call — they exist only
+# to exercise a function in isolation via their own Test button.
 
 #' UI for a solo-mode step debugger
 #'
-#' A solo module tests a single function in isolation. The editor holds the
-#' function body only — do not type \code{fn_name <- function(...) \{ ... \}}
-#' wrappers (they are stripped defensively if present). The function name and
-#' argument list live above the editor as structured inputs, with a "test
-#' value" column so each argument can be exercised.
+#' Renders the function editor with a \strong{Test} button. The editor holds
+#' the function body only — do not type \code{fn_name <- function(...) \{ \}}
+#' wrappers; they are stripped defensively if present. The function name and
+#' argument list (including test values) live in structured inputs above the
+#' editor.
 #'
 #' Pair with \code{\link{soloStepServer}()} using the same \code{id}.
 #'
 #' @param id Module namespace ID.
-#' @param label Display label in the toolbar. Defaults to the id.
-#' @param height Ace editor height as a CSS string.
-#' @param theme Ace editor theme.
-#' @param default_body Initial body text placed in the editor.
+#' @param label Toolbar label. Defaults to \code{id}.
+#' @param height Ace editor height as a CSS string (e.g. \code{"500px"}).
+#' @param theme Ace editor theme name (passed to \pkg{shinyAce}).
+#' @param default_body Initial body text pre-filled in the editor.
 #' @return A \code{tagList} suitable for inclusion anywhere in a Shiny UI.
 #' @export
 soloStepUI <- function(id,
@@ -39,30 +40,34 @@ soloStepUI <- function(id,
 
 #' Server for a solo-mode step debugger
 #'
-#' Registers the module with the runner, manages the editor, argument table,
-#' and function-name input, and wires the built-in Test button.
+#' Registers the function with the shared runner, manages the editor and
+#' argument table, and wires the \strong{Test} button. Clicking Test assembles
+#' \code{fn_name(arg = test_value, ...)} and calls \code{\link{run_program}()}
+#' with \code{debug_targets = fn_name}, pausing at the first body expression.
 #'
-#' @param id Module namespace ID. Must match \code{soloStepUI()}.
-#' @param runner Runner from \code{make_runner()}.
-#' @param run_log A \code{reactiveVal(character(1))} shared across modules.
+#' @param id Module namespace ID. Must match \code{\link{soloStepUI}()}.
+#' @param runner Runner object from \code{\link{make_runner}()}.
+#' @param run_log A \code{reactiveVal(character(1))} shared across all modules
+#'   and the host app.
 #' @param initial_fn_name Initial function name — static string or reactive.
-#'   If blank, defaults to the module id.
+#'   Leave \code{NULL} or \code{""} to start unnamed.
 #' @param initial_body Initial function body — static string or reactive.
-#' @param initial_args Initial argument specs — list of
+#' @param initial_args Initial argument specs — a list of
 #'   \code{list(name, default, test_value)} entries, or a reactive returning
-#'   such a list.
-#' @param prelude Optional character string (or reactive returning one)
-#'   prepended to the generated \code{main_code} on every Test click. Use it
-#'   to load packages or define helpers the function depends on, e.g.
-#'   \code{"library(dplyr)"}. Parsed as top-level R.
+#'   such a list. \code{test_value} is used by the Test button;
+#'   \code{default} is the function signature default.
+#' @param prelude Optional character string or reactive prepended to the
+#'   generated call on every Test click. Use it to load packages or define
+#'   helpers the function needs, e.g. \code{"library(dplyr)"}.
 #'
-#' @return A list of reactives/handles:
+#' @return A named list:
 #'   \describe{
-#'     \item{\code{save_clicked}, \code{back_clicked}}{Reactives firing on
-#'       Save / Back clicks.}
-#'     \item{\code{fn_name}}{Reactive — current function name.}
-#'     \item{\code{get_fn_name}, \code{get_body}, \code{get_args}}{Functions
-#'       returning the current persisted state.}
+#'     \item{\code{save_clicked}, \code{back_clicked}}{Reactives that fire on
+#'       Save / Back clicks. Wire these in the host app to persist or discard
+#'       the editor state.}
+#'     \item{\code{fn_name}}{Reactive returning the current function name.}
+#'     \item{\code{get_fn_name()}, \code{get_body()}, \code{get_args()}}{
+#'       Functions returning the current editor state (isolated reads).}
 #'   }
 #' @export
 soloStepServer <- function(id, runner, run_log,

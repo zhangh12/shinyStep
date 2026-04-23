@@ -1,27 +1,26 @@
 # ── embedded.R ────────────────────────────────────────────────────────────────
 # Embedded-mode module: the function is called from inside a larger program
-# that the host app is responsible for assembling and launching via
-# run_program(). The module contributes the function body + signature + fn
-# name; when its Debug checkbox is ticked, run_program() pauses at the first
-# line of the function each time the host program invokes it.
+# that the host app assembles and launches via run_program(). This module
+# contributes the function definition; when its Debug checkbox is ticked,
+# run_program() installs a proxy that pauses at the first body expression
+# every time the host program calls the function.
 
 #' UI for an embedded-mode step debugger
 #'
-#' An embedded module describes a function that is called from inside a
-#' larger program written and launched by the host app. The editor holds the
-#' function body only — do not type \code{fn_name <- function(...) \{ ... \}}
-#' wrappers (they are stripped defensively if present). The function name and
-#' argument list live above the editor as structured inputs. A "Debug"
-#' checkbox in the toolbar controls whether this function is a pause-point
-#' during \code{\link{run_program}()}.
+#' Renders the function editor with a \strong{Debug} checkbox. Ticking Debug
+#' makes this function a pause point the next time the host app calls
+#' \code{\link{run_program}()}. The editor holds the function body only — do
+#' not type \code{fn_name <- function(...) \{ \}} wrappers; they are stripped
+#' defensively if present. The function name and argument list live in
+#' structured inputs above the editor.
 #'
 #' Pair with \code{\link{embeddedStepServer}()} using the same \code{id}.
 #'
 #' @param id Module namespace ID.
-#' @param label Display label in the toolbar. Defaults to the id.
-#' @param height Ace editor height as a CSS string.
-#' @param theme Ace editor theme.
-#' @param default_body Initial body text placed in the editor.
+#' @param label Toolbar label. Defaults to \code{id}.
+#' @param height Ace editor height as a CSS string (e.g. \code{"500px"}).
+#' @param theme Ace editor theme name (passed to \pkg{shinyAce}).
+#' @param default_body Initial body text pre-filled in the editor.
 #' @return A \code{tagList} suitable for inclusion anywhere in a Shiny UI.
 #' @export
 embeddedStepUI <- function(id,
@@ -41,27 +40,31 @@ embeddedStepUI <- function(id,
 
 #' Server for an embedded-mode step debugger
 #'
-#' Registers the module with the runner, manages the editor, argument table,
-#' function-name input, and the Debug checkbox. The host app is responsible
-#' for calling \code{\link{run_program}()} with its own \code{main_code}; this
-#' module contributes a pause-point automatically when Debug is ticked.
+#' Registers the function with the shared runner and manages the editor,
+#' argument table, and Debug checkbox. The host app calls
+#' \code{\link{run_program}()} with its own \code{main_code}; this module
+#' contributes a pause point automatically whenever Debug is ticked.
 #'
-#' @param id Module namespace ID. Must match \code{embeddedStepUI()}.
-#' @param runner Runner from \code{make_runner()}.
-#' @param run_log A \code{reactiveVal(character(1))} shared across modules.
+#' @param id Module namespace ID. Must match \code{\link{embeddedStepUI}()}.
+#' @param runner Runner object from \code{\link{make_runner}()}.
+#' @param run_log A \code{reactiveVal(character(1))} shared across all modules
+#'   and the host app.
 #' @param initial_fn_name Initial function name — static string or reactive.
-#' @param initial_body Initial body text — static string or reactive.
-#' @param initial_args Initial argument specs — list of
+#' @param initial_body Initial function body — static string or reactive.
+#' @param initial_args Initial argument specs — a list of
 #'   \code{list(name, default)} entries, or a reactive returning such a list.
+#'   (No \code{test_value} column — embedded functions are called from
+#'   \code{main_code}, not via a Test button.)
 #'
-#' @return A list of reactives/handles:
+#' @return A named list:
 #'   \describe{
-#'     \item{\code{save_clicked}, \code{back_clicked}}{Reactives firing on
+#'     \item{\code{save_clicked}, \code{back_clicked}}{Reactives that fire on
 #'       Save / Back clicks.}
-#'     \item{\code{fn_name}}{Reactive — current function name.}
-#'     \item{\code{enabled}}{Reactive — \code{TRUE} when Debug is ticked.}
-#'     \item{\code{get_fn_name}, \code{get_body}, \code{get_args}}{Functions
-#'       returning the current persisted state.}
+#'     \item{\code{fn_name}}{Reactive returning the current function name.}
+#'     \item{\code{enabled}}{Reactive — \code{TRUE} when the Debug checkbox
+#'       is ticked.}
+#'     \item{\code{get_fn_name()}, \code{get_body()}, \code{get_args()}}{
+#'       Functions returning the current editor state (isolated reads).}
 #'   }
 #' @export
 embeddedStepServer <- function(id, runner, run_log,

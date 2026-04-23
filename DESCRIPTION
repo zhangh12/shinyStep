@@ -3,10 +3,13 @@ Type: Package
 Title: Interactive Step Debugger for R Functions in Shiny Apps
 Version: 0.2.0
 Authors@R: person("Han", "Zhang", email = "zhangh.ustc@gmail.com", role = c("aut", "cre"))
-Description: Provides Shiny modules that enable interactive, expression-by-expression
-    debugging of registered R functions within a running Shiny application. Supports
-    step-next, step-into (for/while/repeat/if/else blocks at any nesting depth),
-    continue-to-next-pause, and in-frame console evaluation.
+Description: Embeds an interactive step debugger in a Shiny application.
+    Two module types are provided: solo editors for testing a function in
+    isolation (Test button, argument test values), and embedded editors for
+    debugging a function called from a larger host program (Debug checkbox,
+    run_program()). Both support expression-by-expression stepping through
+    for/while/repeat/if-else blocks at any nesting depth, live in-frame
+    console evaluation, and a green-arrow line highlight in the Ace editor.
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: false

@@ -464,11 +464,41 @@ run_main_until_pause_or_end <- function(runner, run_log) {
   # replace runner$pd with a new list because runner is pass-by-value)
   rm(list = ls(runner$pd, all.names = TRUE), envir = runner$pd)
 
-  # Parse and compile all registered functions
+  # Assemble, parse, and compile each registered module.
+  # Registry entry shape (both solo and embedded):
+  #   list(type, fn_name, get_body, get_args, enabled)
+  # Modules with a blank body are silently skipped — the proxy is not
+  # installed. If main_code references such a function, the user sees a
+  # standard "could not find function" error, which is actionable.
   user_fns  <- list()
   line_maps <- list()
-  for (fn_name in ls(reg)) {
-    code_txt <- reg[[fn_name]]$get_code()
+  seen_names <- character(0)
+
+  for (mod_id in ls(reg)) {
+    entry <- reg[[mod_id]]
+    fn_name <- tryCatch(entry$fn_name(), error = function(e) NULL) %||% mod_id
+    body    <- tryCatch(entry$get_body(), error = function(e) "") %||% ""
+    args    <- tryCatch(entry$get_args(), error = function(e) list()) %||% list()
+
+    if (!nzchar(trimws(body))) next  # blank editor — skip silently
+
+    if (!is_valid_r_name(fn_name)) {
+      append_log(run_log,
+        paste0("Invalid function name '", fn_name, "' (module '", mod_id, "')."),
+        type = "error")
+      rs$error <- TRUE; rs$running <- FALSE
+      return(invisible())
+    }
+    if (fn_name %in% seen_names) {
+      append_log(run_log,
+        paste0("Duplicate function name '", fn_name, "' — each module must have a unique name."),
+        type = "error")
+      rs$error <- TRUE; rs$running <- FALSE
+      return(invisible())
+    }
+    seen_names <- c(seen_names, fn_name)
+
+    code_txt <- .assemble_fn_code(fn_name, body, args)
     parsed   <- tryCatch(parse(text = code_txt, keep.source = TRUE), error = function(e) e)
     if (inherits(parsed, "error")) {
       append_log(run_log,
@@ -481,10 +511,7 @@ run_main_until_pause_or_end <- function(runner, run_log) {
       utils::getParseData(parsed, includeText = FALSE),
       error = function(e) NULL
     )
-    fn_obj   <- tryCatch(
-      eval(parsed, envir = rs$env),
-      error = function(e) e
-    )
+    fn_obj <- tryCatch(eval(parsed, envir = rs$env), error = function(e) e)
     if (inherits(fn_obj, "error")) {
       append_log(run_log,
         paste0("Failed to evaluate '", fn_name, "': ", conditionMessage(fn_obj)),
@@ -493,7 +520,8 @@ run_main_until_pause_or_end <- function(runner, run_log) {
       return(invisible())
     }
     if (!is.function(fn_obj)) {
-      append_log(run_log, paste0("'", fn_name, "' did not evaluate to a function."), type = "error")
+      append_log(run_log, paste0("'", fn_name, "' did not evaluate to a function."),
+                 type = "error")
       rs$error <- TRUE; rs$running <- FALSE
       return(invisible())
     }
@@ -591,21 +619,43 @@ run_main_until_pause_or_end <- function(runner, run_log) {
 
 #' Launch the main program
 #'
-#' Initialises the runner, installs proxy closures for all registered
-#' functions, and starts executing \code{main_code}. Execution pauses
-#' automatically when a \code{debug_target} function is called.
+#' Initialises the runner, installs proxy closures for every registered
+#' module whose body is non-blank, and starts executing \code{main_code}.
+#' Execution pauses automatically when a function listed in
+#' \code{debug_targets} is called.
 #'
 #' @param runner Runner from \code{make_runner()}.
 #' @param main_code Character string — the R program to execute.
-#' @param debug_targets Character vector of function names to pause at.
-#'   Functions not listed here execute silently.
+#' @param debug_targets Character vector of function names to pause at, or
+#'   \code{NULL} (default) to auto-collect from every embedded module whose
+#'   Debug checkbox is ticked. Solo modules are never auto-included.
 #' @param run_log A \code{reactiveVal} used as the shared log.
 #' @export
 run_program <- function(runner, main_code,
-                        debug_targets = character(0),
+                        debug_targets = NULL,
                         run_log) {
+  if (is.null(debug_targets)) {
+    debug_targets <- .collect_debug_targets(runner)
+  }
   run_log("")
   .init_runner(runner, main_code, debug_targets, run_log)
   if (!isTRUE(runner$state$error))
     run_main_until_pause_or_end(runner, run_log)
+}
+
+# Walk the registry and return fn_names of embedded modules with Debug on.
+# Solo modules are excluded — they are only debugged via their own Test
+# button, never during a host-driven run.
+.collect_debug_targets <- function(runner) {
+  reg <- runner$registry
+  out <- character(0)
+  for (mod_id in ls(reg)) {
+    entry <- reg[[mod_id]]
+    if (!identical(entry$type, "embedded")) next
+    is_on <- isTRUE(tryCatch(entry$enabled(), error = function(e) FALSE))
+    if (!is_on) next
+    nm <- tryCatch(entry$fn_name(), error = function(e) NULL)
+    if (!is.null(nm) && nzchar(nm)) out <- c(out, nm)
+  }
+  out
 }

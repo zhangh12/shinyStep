@@ -179,6 +179,97 @@ append_log <- function(run_log, txt, type = "output") {
   if (all(is.na(lines))) NULL else lines
 }
 
+# ── Body / signature assembly ────────────────────────────────────────────────
+
+# Valid R identifier (simple heuristic, matches make.names rules minus length).
+is_valid_r_name <- function(x) {
+  is.character(x) && length(x) == 1L && nzchar(x) &&
+    grepl("^[A-Za-z.][A-Za-z0-9._]*$", x) && !x %in% reserved_r_words()
+}
+
+reserved_r_words <- function() {
+  c("if", "else", "repeat", "while", "function", "for", "in", "next", "break",
+    "TRUE", "FALSE", "NULL", "Inf", "NaN", "NA", "NA_integer_", "NA_real_",
+    "NA_complex_", "NA_character_", "return")
+}
+
+# If body_text parses as `<name> <- function(...) { ... }` or
+# `function(...) { ... }`, return the inner body text; otherwise return
+# body_text unchanged. Used to tolerate users accidentally typing the full
+# wrapper when only the body is expected.
+.strip_fn_wrapper <- function(body_text) {
+  if (!is.character(body_text) || !nzchar(trimws(body_text))) return(body_text)
+
+  # Only strip when the ENTIRE body is a single top-level expression that is
+  # a function wrapper. If the body has multiple statements (e.g. the user
+  # defines a helper function with `f <- function(...) {...}` followed by
+  # more code), we must NOT strip — otherwise the first `<- function(...)`
+  # gets mistaken for the wrapper and the rest of the body is discarded.
+  all_exprs <- tryCatch(parse(text = body_text), error = function(e) NULL)
+  if (is.null(all_exprs) || length(all_exprs) != 1L) return(body_text)
+  parsed <- all_exprs[[1L]]
+
+  fn_expr <- NULL
+  if (is.call(parsed) &&
+      (identical(parsed[[1L]], as.name("<-")) ||
+       identical(parsed[[1L]], as.name("=")))  &&
+      length(parsed) >= 3L &&
+      is.call(parsed[[3L]]) &&
+      identical(parsed[[3L]][[1L]], as.name("function"))) {
+    fn_expr <- parsed[[3L]]
+  } else if (is.call(parsed) && identical(parsed[[1L]], as.name("function"))) {
+    fn_expr <- parsed
+  } else {
+    return(body_text)
+  }
+
+  inner <- fn_expr[[3L]]
+  if (is.call(inner) && identical(inner[[1L]], as.name("{"))) {
+    parts <- vapply(as.list(inner)[-1L],
+                    function(e) paste(deparse(e), collapse = "\n"),
+                    character(1L))
+    paste(parts, collapse = "\n")
+  } else {
+    paste(deparse(inner), collapse = "\n")
+  }
+}
+
+# Build the text of a signature string from a list of arg specs.
+# Each arg: list(name, default). default may be "" (no default).
+.format_signature <- function(args) {
+  if (length(args) == 0L) return("")
+  parts <- vapply(args, function(a) {
+    nm <- trimws(a$name %||% "")
+    df <- trimws(a$default %||% "")
+    if (!nzchar(nm)) return(NA_character_)
+    if (nzchar(df)) sprintf("%s = %s", nm, df) else nm
+  }, character(1L))
+  parts <- parts[!is.na(parts)]
+  paste(parts, collapse = ", ")
+}
+
+# Assemble `fn_name <- function(<sig>) { <body> }` as a single string.
+.assemble_fn_code <- function(fn_name, body, args) {
+  sig  <- .format_signature(args)
+  body <- .strip_fn_wrapper(body)
+  sprintf("%s <- function(%s) {\n%s\n}", fn_name, sig, body)
+}
+
+# Build the argument part of a call like `fn(x = 1, y = 2)` from arg specs
+# that may carry a test_value. Args without test_value are skipped (the
+# function's own default applies). Used by soloStepServer's Test button.
+.format_call_from_testvals <- function(args) {
+  if (length(args) == 0L) return("")
+  parts <- vapply(args, function(a) {
+    nm <- trimws(a$name %||% "")
+    tv <- trimws(a$test_value %||% "")
+    if (!nzchar(nm) || !nzchar(tv)) return(NA_character_)
+    sprintf("%s = %s", nm, tv)
+  }, character(1L))
+  parts <- parts[!is.na(parts)]
+  paste(parts, collapse = ", ")
+}
+
 # ── Line-number extraction for editor highlight ───────────────────────────────
 
 # Parse a function code string and return the start line (1-indexed) of each

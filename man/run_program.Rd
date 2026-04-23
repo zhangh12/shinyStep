@@ -4,20 +4,22 @@
 \alias{run_program}
 \title{Launch the main program}
 \usage{
-run_program(runner, main_code, debug_targets = character(0), run_log)
+run_program(runner, main_code, debug_targets = NULL, run_log)
 }
 \arguments{
 \item{runner}{Runner from \code{make_runner()}.}
 
 \item{main_code}{Character string — the R program to execute.}
 
-\item{debug_targets}{Character vector of function names to pause at.
-Functions not listed here execute silently.}
+\item{debug_targets}{Character vector of function names to pause at, or
+\code{NULL} (default) to auto-collect from every embedded module whose
+Debug checkbox is ticked. Solo modules are never auto-included.}
 
 \item{run_log}{A \code{reactiveVal} used as the shared log.}
 }
 \description{
-Initialises the runner, installs proxy closures for all registered
-functions, and starts executing \code{main_code}. Execution pauses
-automatically when a \code{debug_target} function is called.
+Initialises the runner, installs proxy closures for every registered
+module whose body is non-blank, and starts executing \code{main_code}.
+Execution pauses automatically when a function listed in
+\code{debug_targets} is called.
 }

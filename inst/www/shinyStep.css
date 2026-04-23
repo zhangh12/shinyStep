@@ -144,3 +144,68 @@
 
 /* Console input echo in output log */
 .sStep-log-console { color: #ce9178; font-style: italic; }
+
+/* ── Function-name row ──────────────────────────────────────────────────── */
+.sStep-name-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0 6px 0;
+}
+.sStep-name-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #555;
+  margin: 0;
+  white-space: nowrap;
+}
+.sStep-name-row .form-group { margin: 0; }
+
+/* ── Arguments card ─────────────────────────────────────────────────────── */
+.sStep-args-card {
+  background: #fafbff;
+  border: 1px solid #e0e6f2;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.sStep-args-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6070a0;
+  margin-bottom: 2px;
+}
+.sStep-args-hint {
+  font-size: 11px;
+  color: #9098b0;
+  margin-bottom: 6px;
+}
+.sStep-args-empty {
+  font-size: 12px;
+  color: #9098b0;
+  font-style: italic;
+  padding: 4px 0;
+}
+.sStep-arg-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+.sStep-arg-row .form-group { margin: 0; }
+.sStep-arg-row input[type="text"] {
+  font-size: 12px;
+  padding: 2px 6px;
+  height: 26px;
+}
+.sStep-arg-del {
+  padding: 2px 6px !important;
+  font-size: 11px;
+}
+.sStep-add-arg {
+  margin-top: 2px;
+  font-size: 11px;
+  padding: 2px 8px;
+}

@@ -84,6 +84,35 @@
     "  }",
     "});",
     "(function(){",
+    "  var tries=0;",
+    "  function install(){",
+    "    var ed=_sStepEd('", ns("code"), "');",
+    "    if(!ed){ if(tries++<40) setTimeout(install,50); return; }",
+    "    ed.commands.addCommand({",
+    "      name:'sStepSmartEnter',",
+    "      bindKey:{win:'Enter',mac:'Enter'},",
+    "      exec:function(e){",
+    "        var s=e.getSession(), sel=e.selection;",
+    "        if(!sel.isEmpty()) s.remove(sel.getRange());",
+    "        var p=e.getCursorPosition(), ln=s.getLine(p.row);",
+    "        var bf=ln.charAt(p.column-1), af=ln.charAt(p.column);",
+    "        var pr={'(': ')','[':']','{':'}'};",
+    "        var lead=(ln.match(/^\\s*/)||[''])[0], tab=s.getTabString();",
+    "        if(pr[bf]&&af===pr[bf]){",
+    "          s.insert(p,'\\n'+lead+tab+'\\n'+lead);",
+    "          e.moveCursorTo(p.row+1,lead.length+tab.length);",
+    "          e.clearSelection();",
+    "          return;",
+    "        }",
+    "        var head=ln.substring(0,p.column), ni=lead;",
+    "        try{ ni=s.getMode().getNextLineIndent('start',head,tab); }catch(_){ }",
+    "        s.insert(p,'\\n'+ni);",
+    "      }",
+    "    });",
+    "  }",
+    "  install();",
+    "})();",
+    "(function(){",
     "  var _h=[],_i=-1;",
     "  $(document).on('keydown','#", ns("console_in"), "',function(e){",
     "    if(e.key==='ArrowUp'){",
@@ -137,52 +166,31 @@
       # argument field and clicks Save without defocusing still ships the
       # final value before save_clicked is observed by the parent.
       onmousedown = "if(document.activeElement&&document.activeElement!==this)document.activeElement.blur();"),
-    shiny::uiOutput(ns("status_badge"), inline = TRUE),
-    shiny::div(class = "sStep-toolbar-right",
-      if (show_debug)
-        shiny::checkboxInput(ns("enabled"), label = "Debug", value = TRUE)
-    )
+    shiny::uiOutput(ns("status_badge"), inline = TRUE)
   )
 }
 
-.args_card <- function(ns, show_test_value) {
+.args_card <- function(ns, show_test_value, default_fn_name = "", show_test = FALSE,
+                       show_debug = FALSE) {
   cols <- if (show_test_value) "Name | Default | Test value"
           else                 "Name | Default"
-  shiny::div(class = "sStep-args-card",
-    shiny::div(class = "sStep-args-title", "Arguments"),
-    shiny::div(class = "sStep-args-hint", cols),
-    shiny::uiOutput(ns("args_ui")),
-    shiny::actionButton(ns("btn_add_arg"), "+ Add argument",
-                        class = "btn-xs btn-default sStep-add-arg")
-  )
-}
-
-.editor_and_debug_pane <- function(ns, height, theme, default_body, show_test) {
-  # In solo mode (show_test = TRUE) btn_next doubles as the Test entry-point:
-  # its initial label is "Test" with a play icon, and the server swaps it to
-  # "Next" (forward icon) while the runner is paused inside this function.
-  # Step Out / Continue / Stop stay disabled until the runner is paused here.
   next_label <- if (isTRUE(show_test)) "Test" else "Next"
   next_icon  <- if (isTRUE(show_test)) shiny::icon("play") else shiny::icon("forward")
-  shiny::fluidRow(
-    shiny::column(6,
-      shinyAce::aceEditor(
-        outputId        = ns("code"),
-        value           = default_body,
-        mode            = "r",
-        theme           = theme,
-        height          = height,
-        fontSize        = 14,
-        autoComplete    = "live",
-        showLineNumbers = TRUE,
-        debounce        = 300
-      )
-    ),
-    shiny::column(6,
-      shiny::div(
-        class = "sStep-right-pane",
-        style = paste0("height:", height, ";"),
-        shiny::div(class = "sStep-controls",
+  shiny::div(class = "sStep-args-card",
+    # Use the same column(6)/column(6) split as the editor row so the left
+    # edge of "Function name" aligns exactly with the left edge of the console.
+    # margin:0 on the row suppresses Bootstrap's default -15px side margins
+    # so the columns don't bleed past the card border.
+    shiny::fluidRow(style = "margin:0;",
+      # ── Left col: argument table + step controls ───────────────────────
+      shiny::column(6,
+        shiny::div(class = "sStep-args-title", "Arguments"),
+        shiny::div(class = "sStep-args-hint", cols),
+        shiny::uiOutput(ns("args_ui")),
+        shiny::div(class = "sStep-controls", style = "margin-top:4px;",
+          shiny::actionButton(ns("btn_add_arg"), "+ Add argument",
+                              class = "btn-xs btn-default sStep-add-arg",
+                              style = "margin-right:6px;"),
           shiny::actionButton(ns("btn_next"),     next_label, icon = next_icon,
                               class = "btn-sm btn-warning"),
           shiny::actionButton(ns("btn_step_out"), "Step Out",
@@ -192,8 +200,48 @@
                               class = "btn-sm btn-info"),
           shiny::actionButton(ns("btn_stop"),     "Stop",
                               class = "btn-sm btn-danger")
+        )
+      ),
+      # ── Right col: function name ───────────────────────────────────────
+      shiny::column(6,
+        shiny::tags$label(class = "sStep-name-label",
+                          style = "display:block; margin-bottom:4px;",
+                          "Function name"),
+        shiny::div(style = "margin:0;",
+          shiny::textInput(ns("fn_name"), label = NULL, value = default_fn_name,
+                           placeholder = "e.g. my_fn", width = "100%")
         ),
-        shiny::tags$hr(class = "sStep-hr"),
+        if (show_debug)
+          shiny::div(style = "margin-top:4px;",
+            shiny::checkboxInput(ns("enabled"), label = "Debug", value = TRUE)
+          )
+      )
+    )
+  )
+}
+
+.editor_and_debug_pane <- function(ns, height, theme, default_body, show_test) {
+  shiny::fluidRow(
+    shiny::column(6,
+      shinyAce::aceEditor(
+        outputId               = ns("code"),
+        value                  = default_body,
+        mode                   = "r",
+        theme                  = theme,
+        height                 = height,
+        fontSize               = 14,
+        autoComplete           = "live",
+        showLineNumbers        = TRUE,
+        debounce               = 300,
+        tabSize                = 2,
+        useSoftTabs            = TRUE,
+        setBehavioursEnabled   = TRUE
+      )
+    ),
+    shiny::column(6,
+      shiny::div(
+        class = "sStep-right-pane",
+        style = paste0("height:", height, ";"),
         shiny::div(
           id    = ns("log_box"),
           class = "sStep-terminal",
@@ -222,12 +270,9 @@
     ),
     .step_js(ns),
     .toolbar(ns, label, show_debug = show_debug, show_test = show_test),
-    shiny::div(class = "sStep-name-row",
-      shiny::tags$label(class = "sStep-name-label", "Function name"),
-      shiny::textInput(ns("fn_name"), label = NULL, value = default_fn_name,
-                       placeholder = "e.g. my_fn", width = "260px")
-    ),
-    .args_card(ns, show_test_value = show_test_value),
+    .args_card(ns, show_test_value = show_test_value,
+               default_fn_name = default_fn_name, show_test = show_test,
+               show_debug = show_debug),
     .editor_and_debug_pane(ns, height, theme, default_body, show_test = show_test)
   )
 }

@@ -1,18 +1,24 @@
 Package: shinyStep
 Type: Package
-Title: Interactive Step Debugger for R Functions in Shiny Apps
-Version: 0.3.0
+Title: User-Editable R Functions in 'Shiny' Apps with a Step Debugger
+Version: 0.4.0
 Authors@R: person("Han", "Zhang", email = "zhangh.ustc@gmail.com", role = c("aut", "cre"))
-Description: Embeds an interactive step debugger in a Shiny application.
-    Two module types are provided: solo editors for testing a function in
-    isolation (Test button, argument test values), and embedded editors for
-    debugging a function called from a larger host program (Debug checkbox,
-    run_program()). Both support expression-by-expression stepping through
-    for/while/repeat/if-else blocks at any nesting depth, live in-frame
-    console evaluation, and a green-arrow line highlight in the Ace editor.
+Description: A pair of 'Shiny' modules that let end users of a 'Shiny'
+    application author their own R functions directly in the browser. Host
+    apps can expose these modules as extension points where user-supplied
+    code augments or replaces built-in logic, without requiring users to
+    modify the app's source. Each module embeds an 'Ace' editor with a
+    structured argument table, an in-frame R console rooted in the paused
+    function's local environment, and a step debugger that handles 'for',
+    'while', 'repeat', and 'if'/'else' blocks at any nesting depth. Two
+    module flavours are provided: solo editors for testing a function in
+    isolation with literal argument values, and embedded editors for
+    pausing a function mid-execution inside a larger host program.
 License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: false
+URL: https://github.com/zhangh12/shinyStep
+BugReports: https://github.com/zhangh12/shinyStep/issues
 Imports:
     shiny (>= 1.7.0),
     shinyAce (>= 0.4.0)

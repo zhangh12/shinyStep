@@ -1,37 +1,32 @@
 # shinyStep
 
-`shinyStep` extends a Shiny app with embeddable code editors that let users write and run custom R functions directly inside the app. It is designed for apps that expose user-defined extension points — functions that plug into the app's built-in logic — so that non-trivial behaviour can be customised without touching the app's source code.
+**Let the users of your Shiny app bring their own R code.**
 
-## Motivation
+`shinyStep` is a pair of Shiny modules — one UI component, one server handler — that drop into any Shiny app and let the *end user* (not the developer) write R functions directly in the browser. Those functions become live extension points in the surrounding app: custom data generators, custom decision rules, custom post-processing, anything the developer deliberately exposes as pluggable.
 
-Custom functions do not run in isolation — they run *inside* the app, receiving arguments prepared by its engine, operating on its data structures, and called at moments controlled by its scheduler. Testing them outside the app in a plain R console means losing all of that context. Testing them inside the app with no tooling means `print()` statements and a full restart on every change.
+The modules also happen to ship with a full in-browser step debugger — editor, argument table, Ace highlight, console, step controls — because nobody writes working code on the first try. The debugging is a tool for the user: it lets them step through their own function *inside* the running app, with the engine feeding it real arguments and real state, not a contrived test harness — so the bug that only shows up mid-simulation is the one they get to inspect.
 
-A built-in debugger is therefore the natural solution: an editor and stepper that live inside the Shiny UI, so the user can step through their custom code expression-by-expression in the browser with all built-in app logic running around it, exactly as in production. Variables can be inspected at any point via an in-frame console; no server console or external IDE is needed.
+## Why this exists
 
-Building a Shiny front-end for [TrialSimulator](https://github.com/zhangh12/TrialSimulator) is a concrete example. TrialSimulator is an R package for designing and simulating adaptive clinical trials; a Shiny app built on top of it naturally exposes the data generator of each endpoint and the action function of each milestone as user-defined extension points. `shinyStep` provides the in-app editors and debugger that let users write and test those functions while the full simulation engine runs around them.
+A Shiny app with baked-in logic is a tool. A Shiny app that lets its users write the interesting parts becomes a platform.
 
----
+Take a concrete case: [TrialSimulator](https://github.com/zhangh12/TrialSimulator) simulates adaptive clinical trials. Every trial has its own endpoint distributions and its own interim-analysis rules — these are not knobs on a form, they are *code*. A Shiny front-end for TrialSimulator that only lets users pick from a dropdown of ten built-in distributions is a toy. A front-end that lets a statistician paste in their own hazard function or their own interim rule is the real thing. `shinyStep` is what makes the second one possible without forcing the user to clone a repo, edit a file, and restart R.
 
-## Two modes
+Developer's job: decide which extension points the app exposes, and call the user's function from the engine.
+User's job: write the function in a browser tab, step through it until it behaves, tick off, move on.
 
-`shinyStep` provides two module types that cover the main debugging scenarios:
+## How it works at a glance
 
-| Mode | When to use | How it starts |
-|:--|:--|:--|
-| **Solo** | Test one function in isolation, independent of any surrounding program | Click **Test** — the package assembles `fn(arg = value, ...)` and runs it |
-| **Embedded** | Debug a function that is called from a larger program the host app assembles | Tick **Debug**, then click Run in the host app — execution pauses at the first line of the function each time it is invoked |
+Two module types cover the two ways a user function gets invoked:
 
-Both modes share one runner. A single Shiny app can host any mix of solo and embedded editors.
+| Mode | Test context | Use it for | Kicked off by |
+|:--|:--|:--|:--|
+| **Solo** | Self-contained — behaviour fully determined by the arguments; a few literal test values give a faithful test. | A custom endpoint generator in a clinical-trial simulator, a dose-escalation decision rule, a utility reshaper. | **Test** button in the module. Runs `fn(arg = test_value, …)` and pauses at line 1. |
+| **Embedded** | Context-dependent — inputs only exist mid-run (a partially-simulated trial, a fitted model, accumulated state); debug *while* the host program is running. | A crossover rule in a trial, a log-likelihood passed to `optim()`, a post-processing hook that summarises intermediate state. | **Debug** checkbox in the module + host app triggers `run_program()`. Execution pauses at line 1 of the function every time the program calls it. |
 
----
+A single app can host any mix of both. They share one runner, so behaviour stays consistent across the app.
 
-## Screenshot
-
-![shinyStep overview](man/figures/overview.png)
-
-**Left — solo mode (`sum_vec`):** fill in test values, click **Test**, then step with **Next** / **Step Out** / **Continue**. The right pane shows output and accepts live expressions evaluated in the paused function's local environment.
-
-**Right — embedded mode (`greet`):** tick **Debug**, then click **Run Program** in the host app. Execution pauses at the first line of `greet()` on every call. The status badge reads *Paused — greet* and the step controls activate.
+**When the user is done debugging,** they simply *untick* the Debug checkbox and hit the host app's Run button again — the function runs to completion without pausing. The same module is both the authoring surface (while writing) and an invisible registration point (while running for real). There is no "ship it" step.
 
 ---
 
@@ -41,62 +36,120 @@ Both modes share one runner. A single Shiny app can host any mix of solo and emb
 remotes::install_github("zhangh12/shinyStep")
 ```
 
-Requires `shiny >= 1.7.0` and `shinyAce >= 0.4.0`.
+Requires `shiny >= 1.7.0` and `shinyAce >= 0.4.0`. No other dependencies.
+
+---
+
+## See it running
+
+A full demo with both modes, a shared packages prelude, and a host program ships inside the installed package under `inst/test_app/`. Launch it from any R session with:
+
+```r
+shinyStep::run_demo()
+```
+
+Or, from a source checkout:
+
+```r
+shiny::runApp("inst/test_app")
+```
+
+The screenshots below are taken straight from this app — the solo tab edits `sum_vec`, the embedded tab edits `greet` and calls it from the Main program panel.
+
+### Solo mode
+
+![Solo mode — sum_vec paused mid-loop](man/figures/example_solo.png)
+
+The user fills in each argument's **Test value** — here `x = 1:5` and `args = c("a", "b")` — clicks **Test**, and the function pauses at line 3 (green arrow in the Ace gutter). The status badge reads *Paused — sum_vec*. The right-hand pane is a console rooted in the paused function's local environment: typing `x`, `total`, or `args` prints the current values, and arbitrary expressions like `diff(1:4)` evaluate in place.
+
+### Embedded mode
+
+![Embedded mode — greet paused from main program](man/figures/example_embedded.png)
+
+The user declares `greet()` in the embedded editor and ticks **Debug** (left-aligned under **Function name**). The host app supplies the Main program panel at the bottom — `greet('world', excited = TRUE, args = list(a = 1))` followed by `greet('shinyStep', args = 5)` — and clicking **Run Program** next to the *Main program* heading sends the whole thing through the shared runner. Execution pauses at `greet()`'s first line on every call. The console inspects `who`, `args`, `sum(1:3)` as the function sees them.
+
+When the user is satisfied, they untick **Debug** and click **Run Program** again — the program now runs end-to-end with `greet()` participating normally.
 
 ---
 
 ## Quick start
 
-### Solo mode
+### Solo mode — a sanity-check editor for a single function
 
 ```r
 library(shiny)
 library(shinyStep)
 
+solo_body <- paste(
+  "total <- 0",
+  "for (v in x) total <- total + v",
+  "total",
+  sep = "\n"
+)
+
 ui <- fluidPage(
-  soloStepUI("running_sum", default_body =
-    "total <- 0\nfor (v in x) {\n  total <- total + v\n}\ntotal")
+  soloStepUI("running_sum",
+             default_body    = solo_body,
+             default_fn_name = "running_sum")
 )
 
 server <- function(input, output, session) {
   runner  <- make_runner()
   run_log <- reactiveVal("")
 
-  soloStepServer("running_sum", runner, run_log,
-    initial_fn_name = "running_sum",
-    initial_args    = list(
-      list(name = "x", default = "", test_value = "c(1, 2, 3, 4, 5)")
-    )
-  )
+  soloStepServer("running_sum",
+                 runner  = runner,
+                 run_log = run_log,
+                 initial_fn_name = "running_sum",
+                 initial_args    = list(
+                   list(name = "x", default = "", test_value = "c(1, 2, 3, 4, 5)")
+                 ))
 }
 
 shinyApp(ui, server)
 ```
 
-Click **Test**, then **Next** to step through the loop. Type `total` in the console and press Enter to watch the running sum build up.
+Click **Test**, then **Next** to step through the loop. Type `total` in the console at any pause to watch the running sum build up.
 
-### Embedded mode
+### Embedded mode — a user function called from a host program
 
 ```r
 library(shiny)
 library(shinyStep)
 
+greet_body <- paste(
+  "msg <- paste('Hello,', name)",
+  "if (excited) msg <- paste0(msg, '!')",
+  "msg",
+  sep = "\n"
+)
+
 ui <- fluidPage(
-  textAreaInput("main_code", "Program", rows = 4, width = "100%",
-                value = "result <- greet('world')\nprint(result)"),
-  actionButton("run", "Run Program", class = "btn-primary"),
-  embeddedStepUI("greet", default_body =
-    "msg <- paste('Hello,', name)\nmsg")
+  embeddedStepUI("greet",
+                 default_body    = greet_body,
+                 default_fn_name = "greet"),
+  wellPanel(
+    div(style = "display:flex; align-items:center; gap:12px;",
+        h4("Main program", style = "margin:0;"),
+        actionButton("run", "Run Program",
+                     icon = icon("play"), class = "btn-primary btn-sm")),
+    textAreaInput("main_code", label = NULL, rows = 3, width = "100%",
+                  value = "print(greet('world', excited = TRUE))")
+  )
 )
 
 server <- function(input, output, session) {
   runner  <- make_runner()
   run_log <- reactiveVal("")
 
-  embeddedStepServer("greet", runner, run_log,
-    initial_fn_name = "greet",
-    initial_args    = list(list(name = "name", default = "'stranger'"))
-  )
+  embeddedStepServer("greet",
+                     runner  = runner,
+                     run_log = run_log,
+                     initial_fn_name = "greet",
+                     initial_args    = list(
+                       list(name = "name",    default = "'stranger'"),
+                       list(name = "excited", default = "FALSE")
+                     ))
 
   observeEvent(input$run, {
     run_program(runner, main_code = input$main_code, run_log = run_log)
@@ -106,18 +159,33 @@ server <- function(input, output, session) {
 shinyApp(ui, server)
 ```
 
-Tick **Debug** on the `greet` editor, then click **Run Program**. Execution pauses at `msg <- paste(...)` inside `greet`.
+Tick **Debug** on the `greet` module, click **Run Program** — execution pauses at `msg <- paste(...)`. Step through with **Next**. When you are happy with the function, untick **Debug** and click **Run Program** again: the program runs through without pausing and the final `msg` prints.
+
+---
+
+## Using `shinyStep` as a component
+
+Both modules are **standard Shiny modules** (a `*UI()` / `*Server()` pair with an `id`, the same pattern as Shiny's own module system). They compose like any other module:
+
+- Drop `soloStepUI(id)` / `embeddedStepUI(id)` anywhere in your layout — inside `fluidPage`, `navbarPage`, `tabsetPanel`, `tabItems`, a `bslib::card`, a custom `div`, a hidden panel switched via JS. No top-level requirements, no singletons.
+- Call the matching `*Server(id, ...)` inside your `server()`. `make_runner()` is called *once* per session and handed to every module and to `run_program()`.
+- `run_log` is a shared `reactiveVal(character(1))` that collects output from every module and from the host program. Render it wherever you want (`verbatimTextOutput` tied to `run_log()`), or ignore it if you only care about the in-module console.
+
+> This is a Shiny **module**, not an [htmlwidget](https://www.htmlwidgets.org/) — it is R/Shiny all the way down, not a JS binding around an external library. So it lives in ordinary Shiny UIs, not in R Markdown / Quarto standalone HTML outputs.
+
+You can mount many editors side-by-side (one per user-defined extension point), show/hide them via Shiny's standard UI mechanisms, and they stay coherent because they all push through the same runner.
 
 ---
 
 ## Editor conventions
 
-The editor holds the **function body only** — no `fn_name <- function(...) { ... }` wrapper. Name and arguments live in structured inputs above the editor:
+The editor holds the **function body only** — no `fn <- function(...) { ... }` wrapper. Name and arguments live in structured inputs above the editor:
 
-- **Function name** — a text input.
-- **Arguments** — a table of `name | default | [test value]` rows with a "+ Add argument" button. The *test value* column appears in solo mode only and is used to build the `fn_name(arg = value, ...)` call when you click **Test**.
+- **Function name** — a text input (right column of the header card).
+- **Debug** (embedded only) — a checkbox under the function name, left-aligned. Toggling it is live: you can tick it mid-session and the next call pauses.
+- **Arguments** — a table of `name | default | [test value]` rows with a **+ Add argument** button. The *test value* column appears in **solo mode only** and feeds the `fn(arg = value, …)` call built by Test.
 
-If you accidentally paste a full `fn <- function(args) { body }` definition into the editor, the package strips the wrapper and keeps the inner body.
+If a user pastes a full `fn <- function(args) { body }` definition by habit, the package strips the wrapper and keeps the inner body — it will *not* create a nested function.
 
 ---
 
@@ -132,13 +200,15 @@ Call once inside `server()`. Returns the shared runner object passed to every mo
 ### Solo module
 
 ```r
-soloStepUI(id, label = id, height = "500px", theme = "textmate", default_body = "")
+soloStepUI(id, label = id, height = "500px", theme = "textmate",
+           default_body = "", default_fn_name = "")
 
 soloStepServer(id, runner, run_log,
                initial_fn_name = NULL,
                initial_body    = NULL,
                initial_args    = NULL,
-               prelude         = NULL)
+               prelude         = NULL,
+               lock_first_arg  = FALSE)
 ```
 
 `soloStepServer` returns a named list:
@@ -152,14 +222,16 @@ soloStepServer(id, runner, run_log,
 | `get_body()` | function | current body, isolated read |
 | `get_args()` | function | current args, isolated read |
 
-**`prelude`** — optional character string or reactive prepended to the Test call. Use it to load packages or define helpers the function needs, e.g. `"library(dplyr)"`.
+- **`prelude`** — optional character string or reactive prepended to the Test call. Use for package loads or helper definitions the user function needs (e.g. `"library(dplyr)"`). Accepts a reactive so preludes can be driven by UI inputs (tick a package → it is loaded on every Test).
+- **`lock_first_arg`** — if `TRUE`, the first argument's name is read-only and its delete button is hidden. Use when the host engine always injects a reserved first argument (e.g. TrialSimulator always passes `n` to every generator).
 
 ---
 
 ### Embedded module
 
 ```r
-embeddedStepUI(id, label = id, height = "500px", theme = "textmate", default_body = "")
+embeddedStepUI(id, label = id, height = "500px", theme = "textmate",
+               default_body = "", default_fn_name = "")
 
 embeddedStepServer(id, runner, run_log,
                    initial_fn_name = NULL,
@@ -177,13 +249,13 @@ Same return value as `soloStepServer`, plus:
 
 ### `run_program(runner, main_code, debug_targets = NULL, run_log)`
 
-Execute `main_code` (a character string of R expressions).
+Execute `main_code` (a character string of R expressions) through the shared runner.
 
 | `debug_targets` | Behaviour |
 |:--|:--|
-| `NULL` (default) | pause at every embedded module whose Debug checkbox is ticked |
-| `character(0)` | run to completion without pausing |
-| `c("fn_a", "fn_b")` | pause at these names regardless of checkbox state |
+| `NULL` (default) | pause at every embedded module whose **Debug** checkbox is ticked |
+| `character(0)` | run to completion without pausing — same as unticking every box |
+| `c("fn_a", "fn_b")` | pause at these function names regardless of checkbox state |
 
 Modules with a blank body are skipped silently; a reference to one in `main_code` produces a standard "could not find function" error.
 
@@ -191,25 +263,25 @@ Modules with a blank body are skipped silently; a reference to one in `main_code
 
 ### Step-control functions
 
-Called by the built-in buttons; exported for advanced use (e.g. driving stepping programmatically from the host app).
+Called by the built-in buttons; exported for advanced use (e.g. driving stepping programmatically from the host app, or binding custom keyboard shortcuts).
 
 | Function | Description |
 |:--|:--|
 | `step_fn(runner, run_log)` | Execute one expression; auto-expands compound blocks |
-| `step_out_frame(runner, run_log)` | Exit the current loop or if/else block |
+| `step_out_frame(runner, run_log)` | Exit the current loop or `if`/`else` block |
 | `continue_to_next_pause(runner, run_log)` | Run until the next pause point or end |
 | `stop_runner(runner, run_log)` | Abort execution |
 
 ---
 
-## Features
+## What the debugger actually handles
 
-- Handles `for`, `while`, `repeat`, `if` / `else if` / `else`, early `return()`, `break`, `next` at any nesting depth.
-- In-frame console: evaluate any R expression in the paused function's local environment. Multi-line pastes run sequentially, matching R REPL behaviour.
-- Green-arrow line highlight in the Ace editor. The `fn_name <- function(...) {` header is hidden; editor line numbers correspond 1-to-1 with the body you wrote.
-- Works with functions called directly from `main_code` **and** functions invoked inside synchronous wrappers (e.g. a simulation controller's `$run()` method). When a proxy pauses it throws a typed condition that unwinds the call stack; Continue replays the wrapper with the just-debugged function in a skip list so execution resumes correctly.
-- Solo modules are never auto-paused during an embedded `run_program()` call — they only pause via their own Test button.
-- The Debug checkbox can be toggled live, even mid-run.
+- `for`, `while`, `repeat`, `if` / `else if` / `else`, early `return()`, `break`, `next` — at any nesting depth.
+- **In-frame console**: any R expression in the paused function's local environment. Multi-line pastes run sequentially, matching the R REPL.
+- **Green-arrow line highlight** in the Ace editor. The synthetic `fn <- function(...) {` header is hidden; editor line numbers map 1-to-1 with the body the user wrote.
+- **Wrapped calls**: the function still pauses correctly when it is invoked inside a synchronous controller (e.g. a simulator's `$run()` method that drives many calls internally). Continue replays the wrapper with the just-debugged function on a skip list, so execution resumes cleanly instead of re-pausing on the same call.
+- **Live Debug toggle**: tick or untick during a run — the next invocation respects the new state.
+- **Solo modules never auto-pause** during a host-driven `run_program()`. They exist only to exercise a function in isolation via their own Test button, so they stay out of the way when the host program runs.
 
 ---
 
@@ -223,12 +295,3 @@ Called by the built-in buttons; exported for advanced use (e.g. driving stepping
 
 Selecting text in the output log copies it to the clipboard automatically.
 
----
-
-## Test app
-
-A working example combining both modes is in `test_app/`. It includes a packages prelude field, a solo editor for `sum_vec()`, and an embedded editor for `greet()` with an editable main program text area:
-
-```r
-shiny::runApp("test_app")
-```

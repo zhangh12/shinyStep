@@ -57,6 +57,10 @@ embeddedStepUI <- function(id,
 #'   \code{list(name, default)} entries, or a reactive returning such a list.
 #'   (No \code{test_value} column — embedded functions are called from
 #'   \code{main_code}, not via a Test button.)
+#' @param lock_first_arg If \code{TRUE}, the first argument's name field is
+#'   readonly and its delete button is hidden. Use this when the caller
+#'   requires a reserved first parameter (e.g. a trial-engine contract that
+#'   passes \code{trial} into every action).
 #'
 #' @return A named list:
 #'   \describe{
@@ -72,7 +76,8 @@ embeddedStepUI <- function(id,
 embeddedStepServer <- function(id, runner, run_log,
                                initial_fn_name = NULL,
                                initial_body    = NULL,
-                               initial_args    = NULL) {
+                               initial_args    = NULL,
+                               lock_first_arg  = FALSE) {
   shiny::moduleServer(id, function(input, output, session) {
     .step_server_core(
       input, output, session,
@@ -82,7 +87,8 @@ embeddedStepServer <- function(id, runner, run_log,
       initial_fn_name = initial_fn_name,
       initial_body    = initial_body,
       initial_args    = initial_args,
-      show_test_value = FALSE
+      show_test_value = FALSE,
+      lock_first_arg  = lock_first_arg
     )
   })
 }

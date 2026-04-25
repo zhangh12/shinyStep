@@ -11,7 +11,7 @@ embeddedStepServer(
   initial_fn_name = NULL,
   initial_body = NULL,
   initial_args = NULL,
-  lock_first_arg = FALSE
+  reserved_args = NULL
 )
 }
 \arguments{
@@ -31,10 +31,23 @@ and the host app.}
 (No \code{test_value} column — embedded functions are called from
 \code{main_code}, not via a Test button.)}
 
-\item{lock_first_arg}{If \code{TRUE}, the first argument's name field is
-readonly and its delete button is hidden. Use this when the caller
-requires a reserved first parameter (e.g. a trial-engine contract that
-passes \code{trial} into every action).}
+\item{reserved_args}{Optional list of reserved-argument specs. Each entry
+pins one row at the top of the argument table: the name field is readonly,
+the delete button is hidden, and the user cannot rename, remove, or
+reorder the row. Entries may be a bare character name (\code{"trial"}) or
+a list with fields:
+\describe{
+  \item{\code{name}}{The reserved argument name (required).}
+  \item{\code{allow_default}}{If \code{FALSE}, the default-value field is
+    hidden for this row. Defaults to \code{TRUE}.}
+  \item{\code{allow_test_value}}{If \code{FALSE}, the test-value field is
+    hidden for this row. Defaults to \code{TRUE}. (Embedded mode never
+    shows the test-value column, so this flag is usually moot.)}
+}
+Most callers only need to pin names (e.g. \code{list("n")}); disallowing
+both value fields is unusual but useful when the host supplies the
+argument at call time (e.g. \code{list(list(name = "trial",
+allow_default = FALSE, allow_test_value = FALSE))}).}
 }
 \value{
 A named list:

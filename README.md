@@ -208,7 +208,7 @@ soloStepServer(id, runner, run_log,
                initial_body    = NULL,
                initial_args    = NULL,
                prelude         = NULL,
-               lock_first_arg  = FALSE)
+               reserved_args   = NULL)
 ```
 
 `soloStepServer` returns a named list:
@@ -223,7 +223,7 @@ soloStepServer(id, runner, run_log,
 | `get_args()` | function | current args, isolated read |
 
 - **`prelude`** — optional character string or reactive prepended to the Test call. Use for package loads or helper definitions the user function needs (e.g. `"library(dplyr)"`). Accepts a reactive so preludes can be driven by UI inputs (tick a package → it is loaded on every Test).
-- **`lock_first_arg`** — if `TRUE`, the first argument's name is read-only and its delete button is hidden. Use when the host engine always injects a reserved first argument (e.g. TrialSimulator always passes `n` to every generator).
+- **`reserved_args`** — optional list of reserved-argument specs. Each entry pins one row at the top of the argument table: the name field is readonly, the delete button is hidden, and the user cannot rename, remove, or reorder it. Entries may be a bare name (`"n"`) or a list with `name`, `allow_default` (default `TRUE`), and `allow_test_value` (default `TRUE`). Use the bare-name form when the host engine always injects an argument (e.g. a simulator that passes `n` into every generator). Disallowing both value fields is unusual but useful when the host supplies the argument at call time, e.g. `list(list(name = "trial", allow_default = FALSE, allow_test_value = FALSE))`.
 
 ---
 

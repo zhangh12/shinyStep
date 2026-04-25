@@ -23,6 +23,8 @@ embeddedStepUI(
 \item{theme}{Ace editor theme name (passed to \pkg{shinyAce}).}
 
 \item{default_body}{Initial body text pre-filled in the editor.}
+
+\item{default_fn_name}{Initial function name pre-filled in the name input.}
 }
 \value{
 A \code{tagList} suitable for inclusion anywhere in a Shiny UI.

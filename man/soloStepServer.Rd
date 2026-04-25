@@ -12,7 +12,7 @@ soloStepServer(
   initial_body = NULL,
   initial_args = NULL,
   prelude = NULL,
-  lock_first_arg = FALSE
+  reserved_args = NULL
 )
 }
 \arguments{
@@ -37,10 +37,23 @@ such a list. \code{test_value} is used by the Test button;
 generated call on every Test click. Use it to load packages or define
 helpers the function needs, e.g. \code{"library(dplyr)"}.}
 
-\item{lock_first_arg}{If \code{TRUE}, the first argument's name field is
-readonly and its delete button is hidden. Use this when the caller
-requires a reserved first parameter (e.g. a simulator that passes
-\code{n} into every generator).}
+\item{reserved_args}{Optional list of reserved-argument specs. Each entry
+pins one row at the top of the argument table: the name field is readonly,
+the delete button is hidden, and the user cannot rename, remove, or
+reorder the row. Entries may be a bare character name (\code{"n"}) or a
+list with fields:
+\describe{
+  \item{\code{name}}{The reserved argument name (required).}
+  \item{\code{allow_default}}{If \code{FALSE}, the default-value field is
+    hidden for this row. Defaults to \code{TRUE}.}
+  \item{\code{allow_test_value}}{If \code{FALSE}, the test-value field is
+    hidden for this row. Defaults to \code{TRUE}.}
+}
+Most callers only need to pin names (e.g. \code{list("n")} for a
+simulator that always passes \code{n}); disallowing both value fields is
+unusual but useful when the host supplies the argument at call time (e.g.
+\code{list(list(name = "trial", allow_default = FALSE,
+allow_test_value = FALSE))}).}
 }
 \value{
 A named list:

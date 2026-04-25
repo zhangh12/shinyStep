@@ -176,6 +176,28 @@
           else                 "Name | Default"
   next_label <- if (isTRUE(show_test)) "Test" else "Next"
   next_icon  <- if (isTRUE(show_test)) shiny::icon("play") else shiny::icon("forward")
+
+  # Initial disabled state for the four step-control buttons. The runtime
+  # observer below also toggles these via a custom JS message, but that
+  # message can race the first DOM render (the message is dispatched but the
+  # buttons aren't in the DOM yet, so the handler bails). Bake the correct
+  # default into the HTML so buttons never appear active before the user has
+  # done anything actionable.
+  #   * btn_next: solo  → enabled iff fn_name is a valid R identifier
+  #               other → disabled (paused-only)
+  #   * step_out / continue / stop: always disabled at mount (paused-only)
+  next_disabled_init <- if (isTRUE(show_test)) {
+    !is_valid_r_name(default_fn_name)
+  } else TRUE
+  disabled_attrs <- function(disabled) {
+    if (!isTRUE(disabled)) return(list())
+    list(disabled = "disabled",
+         style    = "opacity:0.45;cursor:not-allowed;")
+  }
+  apply_disabled <- function(btn, disabled) {
+    do.call(shiny::tagAppendAttributes,
+            c(list(btn), disabled_attrs(disabled)))
+  }
   shiny::div(class = "sStep-args-card",
     # Use the same column(6)/column(6) split as the editor row so the left
     # edge of "Function name" aligns exactly with the left edge of the console.
@@ -191,15 +213,23 @@
           shiny::actionButton(ns("btn_add_arg"), "+ Add argument",
                               class = "btn-xs btn-default sStep-add-arg",
                               style = "margin-right:6px;"),
-          shiny::actionButton(ns("btn_next"),     next_label, icon = next_icon,
-                              class = "btn-sm btn-warning"),
-          shiny::actionButton(ns("btn_step_out"), "Step Out",
-                              class = "btn-sm btn-success",
-                              title = "Exit the current loop or if/else block"),
-          shiny::actionButton(ns("btn_continue"), "Continue",
-                              class = "btn-sm btn-info"),
-          shiny::actionButton(ns("btn_stop"),     "Stop",
-                              class = "btn-sm btn-danger")
+          apply_disabled(
+            shiny::actionButton(ns("btn_next"), next_label, icon = next_icon,
+                                class = "btn-sm btn-warning"),
+            next_disabled_init),
+          apply_disabled(
+            shiny::actionButton(ns("btn_step_out"), "Step Out",
+                                class = "btn-sm btn-success",
+                                title = "Exit the current loop or if/else block"),
+            TRUE),
+          apply_disabled(
+            shiny::actionButton(ns("btn_continue"), "Continue",
+                                class = "btn-sm btn-info"),
+            TRUE),
+          apply_disabled(
+            shiny::actionButton(ns("btn_stop"), "Stop",
+                                class = "btn-sm btn-danger"),
+            TRUE)
         )
       ),
       # ── Right col: function name ───────────────────────────────────────
@@ -298,6 +328,39 @@
   })
 }
 
+# Normalise a caller-supplied reserved_args spec into a fully-populated list.
+# Each entry is list(name, allow_default, allow_test_value); flags default to
+# TRUE so the common case ("just lock the name") requires no extra config.
+.normalise_reserved_args <- function(r) {
+  if (is.null(r) || length(r) == 0L) return(list())
+  lapply(r, function(x) {
+    if (is.character(x) && length(x) == 1L) x <- list(name = x)
+    list(
+      name             = x$name %||% "",
+      allow_default    = if (is.null(x$allow_default))    TRUE else isTRUE(x$allow_default),
+      allow_test_value = if (is.null(x$allow_test_value)) TRUE else isTRUE(x$allow_test_value)
+    )
+  })
+}
+
+# Align an args list against a reserved spec. Reserved entries occupy the first
+# N rows, in order; if the caller's initial_args is shorter it is padded with
+# blank rows so the reserved slots always exist. Names of reserved rows are
+# forced to the spec (so `reserved_args = list(list(name="trial"))` guarantees
+# row 1 is called `trial`). Disallowed value fields are blanked so stale data
+# doesn't leak through when a caller flips a flag off.
+.apply_reserved_args <- function(args, reserved) {
+  n_res <- length(reserved)
+  if (n_res == 0L) return(args)
+  while (length(args) < n_res) args <- c(args, list(.new_arg()))
+  for (i in seq_len(n_res)) {
+    args[[i]]$name <- reserved[[i]]$name
+    if (!isTRUE(reserved[[i]]$allow_default))    args[[i]]$default    <- ""
+    if (!isTRUE(reserved[[i]]$allow_test_value)) args[[i]]$test_value <- ""
+  }
+  args
+}
+
 # Shared server wiring used by both soloStepServer and embeddedStepServer.
 # Returns a list of reactives that the caller surfaces to the host app.
 #
@@ -316,9 +379,12 @@
                               initial_body,
                               initial_args,
                               show_test_value,
-                              lock_first_arg = FALSE) {
+                              reserved_args = NULL) {
   ns <- session$ns
   rs <- runner$state
+
+  reserved <- .normalise_reserved_args(reserved_args)
+  n_res    <- length(reserved)
 
   # ── Reactive state ───────────────────────────────────────────────────────
   resolve_ic <- function(x) {
@@ -326,7 +392,8 @@
   }
   start_fn_name <- resolve_ic(initial_fn_name) %||% ""
   start_body    <- resolve_ic(initial_body)    %||% ""
-  start_args    <- .normalise_arg_list(resolve_ic(initial_args))
+  start_args    <- .apply_reserved_args(
+    .normalise_arg_list(resolve_ic(initial_args)), reserved)
 
   # Do NOT derive a fallback fn_name from the module id. If the parent app
   # passes "" that's a deliberate signal — e.g. a fresh "+ New" entry whose
@@ -385,7 +452,8 @@
   }
   if (shiny::is.reactive(initial_args)) {
     shiny::observeEvent(initial_args(), {
-      new_args <- .normalise_arg_list(initial_args())
+      new_args <- .apply_reserved_args(
+        .normalise_arg_list(initial_args()), reserved)
       # Always bump the render tick: on re-mount after a save the parent state
       # echoes the same args back through initial_args, and we need renderUI
       # to re-run so its HTML cache picks up current args_rv values.
@@ -440,14 +508,25 @@
     if (length(cur) == 0L) return(invisible())
     changed <- FALSE
     for (i in seq_along(cur)) {
-      a  <- cur[[i]]
-      nm <- input[[paste0("arg_name_",    a$id)]]
-      df <- input[[paste0("arg_default_", a$id)]]
-      tv <- if (show_test_value) input[[paste0("arg_testval_", a$id)]] else NULL
-      if (!is.null(nm) && !identical(nm, a$name))       { cur[[i]]$name    <- nm; changed <- TRUE }
-      if (!is.null(df) && !identical(df, a$default))    { cur[[i]]$default <- df; changed <- TRUE }
-      if (show_test_value && !is.null(tv) &&
-          !identical(tv, a$test_value))                 { cur[[i]]$test_value <- tv; changed <- TRUE }
+      a      <- cur[[i]]
+      is_res <- i <= n_res
+      # Reserved rows: the name input is readonly and fields may be hidden, so
+      # don't pull those back from the DOM — the spec is authoritative.
+      if (!is_res) {
+        nm <- input[[paste0("arg_name_", a$id)]]
+        if (!is.null(nm) && !identical(nm, a$name)) { cur[[i]]$name <- nm; changed <- TRUE }
+      }
+      read_default <- !is_res || isTRUE(reserved[[i]]$allow_default)
+      if (read_default) {
+        df <- input[[paste0("arg_default_", a$id)]]
+        if (!is.null(df) && !identical(df, a$default)) { cur[[i]]$default <- df; changed <- TRUE }
+      }
+      read_tv <- show_test_value &&
+                 (!is_res || isTRUE(reserved[[i]]$allow_test_value))
+      if (read_tv) {
+        tv <- input[[paste0("arg_testval_", a$id)]]
+        if (!is.null(tv) && !identical(tv, a$test_value)) { cur[[i]]$test_value <- tv; changed <- TRUE }
+      }
     }
     if (changed) args_rv(cur)
     invisible()
@@ -455,9 +534,9 @@
 
   # RenderUI depends ONLY on args_ids_rv — which changes on add/remove but not
   # on typing — so the DOM inputs are not torn down while the user is editing.
-  # When lock_first_arg = TRUE, the first row's name field is readonly and its
-  # delete button is replaced by a placeholder — enforcing a caller-specified
-  # reserved first parameter (e.g. `n` for TrialDesigner generators).
+  # Rows 1..n_res are reserved: the name field is readonly, the delete button
+  # is replaced by a placeholder, and the default / test_value fields are each
+  # hidden independently based on the caller's reserved_args spec.
   output$args_ui <- shiny::renderUI({
     ids <- args_ids_rv()
     args_render_tick()   # refresh HTML cache on Save / Back / parent echo
@@ -467,9 +546,14 @@
                         "No arguments. Click + Add argument below."))
     }
     shiny::tagList(lapply(seq_along(args), function(i) {
-      a <- args[[i]]
-      is_locked <- isTRUE(lock_first_arg) && i == 1L
-      name_field <- if (is_locked) {
+      a            <- args[[i]]
+      is_res       <- i <= n_res
+      spec         <- if (is_res) reserved[[i]] else NULL
+      show_default <- !is_res || isTRUE(spec$allow_default)
+      show_testv   <- show_test_value &&
+                      (!is_res || isTRUE(spec$allow_test_value))
+
+      name_field <- if (is_res) {
         shiny::div(class = "form-group shiny-input-container",
           style = "width: 140px; display: inline-block; vertical-align: top;",
           shiny::tags$input(
@@ -486,7 +570,24 @@
                          value = a$name, width = "140px",
                          placeholder = "name")
       }
-      del_btn <- if (is_locked) {
+      default_field <- if (show_default) {
+        shiny::textInput(ns(paste0("arg_default_", a$id)), label = NULL,
+                         value = a$default, width = "160px",
+                         placeholder = "default (optional)")
+      } else {
+        # Spacer keeps column alignment across rows when the field is hidden.
+        shiny::div(style = "width:160px; display:inline-block;")
+      }
+      testval_field <- if (show_test_value) {
+        if (show_testv) {
+          shiny::textInput(ns(paste0("arg_testval_", a$id)), label = NULL,
+                           value = a$test_value, width = "160px",
+                           placeholder = "test value")
+        } else {
+          shiny::div(style = "width:160px; display:inline-block;")
+        }
+      } else NULL
+      del_btn <- if (is_res) {
         shiny::div(style = "display:inline-block;width:28px;")
       } else {
         shiny::actionButton(ns(paste0("rm_arg_", a$id)), label = NULL,
@@ -496,15 +597,7 @@
                             tabindex = "-1")
       }
       shiny::div(class = "sStep-arg-row",
-        name_field,
-        shiny::textInput(ns(paste0("arg_default_", a$id)), label = NULL,
-                         value = a$default, width = "160px",
-                         placeholder = "default (optional)"),
-        if (show_test_value)
-          shiny::textInput(ns(paste0("arg_testval_", a$id)), label = NULL,
-                           value = a$test_value, width = "160px",
-                           placeholder = "test value"),
-        del_btn
+        name_field, default_field, testval_field, del_btn
       )
     }))
   })
@@ -638,7 +731,13 @@
   shiny::observe({
     fn_name  <- fn_name_rv()
     paused_here <- isTRUE(rs$paused) && identical(rs$pause_owner, fn_name)
-    next_disabled <- if (identical(type, "solo")) FALSE else !paused_here
+    next_disabled <- if (identical(type, "solo")) {
+      # Solo: Test is enabled only when the user has supplied a valid
+      # function name. Once paused inside the fn, Next is always enabled.
+      if (paused_here) FALSE else !is_valid_r_name(fn_name)
+    } else {
+      !paused_here
+    }
     session$sendCustomMessage(ns("toggle_controls"), list(
       next_disabled     = next_disabled,
       step_out_disabled = !paused_here,
